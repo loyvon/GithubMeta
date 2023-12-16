@@ -14,7 +14,7 @@ CORS(app)
 limiter = Limiter(
     app=app,
     key_func=get_remote_address,  # Use the client's IP address to track requests
-    default_limits=["200 per day", "50 per hour"]  # Example limit: 200 requests per day and 50 requests per hour
+    default_limits=["40 per day", "10 per hour"]  # Example limit: 200 requests per day and 50 requests per hour
 )
 
 
