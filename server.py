@@ -12,7 +12,7 @@ from config import config
 app = Flask(__name__, static_folder='search/build')
 CORS(app)
 limiter = Limiter(
-    app,
+    app=app,
     key_func=get_remote_address,  # Use the client's IP address to track requests
     default_limits=["200 per day", "50 per hour"]  # Example limit: 200 requests per day and 50 requests per hour
 )
