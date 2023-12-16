@@ -3,13 +3,20 @@ import sqlite3
 
 from flask import Flask, send_from_directory, request
 from flask_cors import CORS
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
 
 import nlp2sql
 from config import config
-from load_to_db import load_to_db
 
 app = Flask(__name__, static_folder='search/build')
 CORS(app)
+limiter = Limiter(
+    app,
+    key_func=get_remote_address,  # Use the client's IP address to track requests
+    default_limits=["200 per day", "50 per hour"]  # Example limit: 200 requests per day and 50 requests per hour
+)
+
 
 @app.route('/', defaults={'path': ''})
 @app.route('/<path:path>')
@@ -21,6 +28,7 @@ def serve(path):
 
 
 @app.route('/api')
+@limiter.limit("10/minute")  # Limit to 10 requests per minute for this route
 def api():
     search_term = request.args.get('search', '')  # Get search query parameter
     print(f'You searched for: {search_term}')
