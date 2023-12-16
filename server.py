@@ -14,7 +14,7 @@ CORS(app)
 limiter = Limiter(
     app=app,
     key_func=get_remote_address,  # Use the client's IP address to track requests
-    default_limits=["40 per day", "10 per hour"]  # Example limit: 200 requests per day and 50 requests per hour
+    default_limits=["40 per day", "10 per hour"]
 )
 
 
@@ -28,7 +28,7 @@ def serve(path):
 
 
 @app.route('/api')
-@limiter.limit("10/minute")  # Limit to 10 requests per minute for this route
+@limiter.limit("10/hour")  # Limit to 10 requests per hour for this route
 def api():
     search_term = request.args.get('search', '')  # Get search query parameter
     print(f'You searched for: {search_term}')
