@@ -11,7 +11,7 @@ function App() {
 
   const handleClick = async () => {
     // Replace with your server URL and endpoint
-    const res = await axios.get(`/api?search=${inputValue}`);
+    const res = await axios.get(`/api/search?question=${inputValue}`);
     setResponse(res.data);
   };
 
