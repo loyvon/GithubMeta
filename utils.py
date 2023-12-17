@@ -140,6 +140,7 @@ def describe(question, rows):
               "Please describe the rows in a way that answers the question, and use abbreviation when necessary "
               "to limit the response in 300 words."
               "Your description should focus on the question and the answer to the question."
+              "Don't mention how the result generated as the description will be presented to end users."
               "Description: ").format(question, rows)
     print(prompt)
     response = client.chat.completions.create(model=Configuration.OpenaiModel,

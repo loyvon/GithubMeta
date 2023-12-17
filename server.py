@@ -5,7 +5,7 @@ from flask_limiter.util import get_remote_address
 import utils
 
 app = Flask(__name__, static_folder='search/build')
-limiter = Limiter(app=app, key_func=get_remote_address, default_limits=["40 per day", "10 per hour"])
+limiter = Limiter(app=app, key_func=get_remote_address, default_limits=["400 per day", "100 per hour"])
 
 
 @app.route('/', defaults={'path': ''})
@@ -22,7 +22,7 @@ def serve(path):
 def search():
     question = request.args.get('question', '')  # Get search query parameter
     print(f'You searched for: {question}')
-    sql = utils.question2sql(question)
+    sql = utils.question2sql(utils.load_tables_schema(), question)
     if sql is None:
         return f"Failed to answer: {question}"
     res = utils.execute(sql)
