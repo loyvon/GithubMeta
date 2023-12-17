@@ -29,7 +29,19 @@ jobs:
       
       - name: Install dependencies
         run: pip install -r requirements.txt
-        
+      
+      - name: Setup Node.js environment
+        uses: actions/setup-node@v4.0.0
+        with:
+          node-version: '16.14.2'
+  
+      - name: Build frontend
+        run: |
+          cd search
+          npm install
+          npm run build
+          cd ..
+
       # Optional: Add step to run tests here (PyTest, Django test suites, etc.)
 
       - name: Zip artifact for deployment
