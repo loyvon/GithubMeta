@@ -8,13 +8,9 @@ app = Flask(__name__, static_folder='search/build')
 limiter = Limiter(app=app, key_func=get_remote_address, default_limits=["400 per day", "100 per hour"])
 
 
-@app.route('/', defaults={'path': ''})
-@app.route('/<path:path>')
-def serve(path):
-    if path != "" and not path.startswith("static"):
-        return send_from_directory(app.static_folder, 'index.html')
-    else:
-        return send_from_directory(app.static_folder, path)
+@app.route('/')
+def serve():
+    send_from_directory(app.static_folder, 'index.html')
 
 
 @app.route('/api/search')
