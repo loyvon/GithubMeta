@@ -52,7 +52,7 @@ stages:
   jobs:
   - deployment: Deploy
     displayName: 'Deploy'
-    # environment: 'your-environment-name'
+    environment: 'Loyvon'
     pool:
       vmImage: 'ubuntu-latest'
     strategy:
