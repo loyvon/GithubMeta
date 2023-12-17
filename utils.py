@@ -122,6 +122,7 @@ def question2sql(schemas, question):
                                               presence_penalty=0,
                                               stop=["#", ";"])
     msg = response.choices[0].message.content
+    print(msg)
     matches = re.search('\((.*?)\)', msg)
     if matches:
         return matches.group(1)
