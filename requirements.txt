@@ -1,4 +1,4 @@
-requests~=2.31.0
-flask
-openai
-pyyaml
+Flask==3.0.0
+mysql-connector-python==8.2.0
+openai==1.4.0
+requests==2.31.0
