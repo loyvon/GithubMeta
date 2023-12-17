@@ -36,6 +36,7 @@ def add_topic():
     topic = request.args.get('topic', '')  # Get search query parameter
     print(f'Add topic: {topic}')
     utils.load_topic(topic)
+    return None
 
 
 if __name__ == '__main__':
