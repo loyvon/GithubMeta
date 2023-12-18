@@ -12,17 +12,7 @@ from config import Configuration
 
 
 logger = logging.getLogger('githubmetadata')
-
-cnxpool = mysql.connector.pooling.MySQLConnectionPool(pool_name="mypool",
-                                                      pool_size=10,
-                                                      host=Configuration.MysqlHost,
-                                                      user=Configuration.MysqlUser,
-                                                      password=Configuration.MysqlPasswd,
-                                                      database=Configuration.MysqlName,
-                                                      client_flags=[mysql.connector.ClientFlag.SSL],
-                                                      ssl_ca='./DigiCertGlobalRootCA.crt.pem',
-                                                      ssl_disabled=False,
-                                                      port=3306)
+logger.setLevel(logging.DEBUG)
 
 
 def get_openai_client():
@@ -36,8 +26,21 @@ def get_openai_client():
 
 
 def get_db():
-    conn = cnxpool.get_connection()
+    conn = mysql.connector.connect(pool_name="mypool",
+                                                      pool_size=10,
+                                                      host=Configuration.MysqlHost,
+                                                      user=Configuration.MysqlUser,
+                                                      password=Configuration.MysqlPasswd,
+                                                      database=Configuration.MysqlName,
+                                                      client_flags=[mysql.connector.ClientFlag.SSL],
+                                                      ssl_ca='./DigiCertGlobalRootCA.crt.pem',
+                                                      ssl_disabled=False,
+                                                      port=3306)
     return conn
+
+
+def close_db(conn):
+    conn.close()
 
 
 def load_topic(topic):
@@ -62,7 +65,7 @@ def load_topic(topic):
                                 auth=HTTPBasicAuth(Configuration.GithubUsername, Configuration.GithubToken),
                                 headers=headers)
         if not response.ok:
-            print(response.text)
+            logger.error(response.text)
             break
         full_data = json.loads(response.text)
         for data in full_data['items']:
@@ -97,11 +100,13 @@ def load_topic(topic):
         time.sleep(2)
 
     logger.info(f"Finished dumping pages for {topic}")
+    close_db(conn)
 
 
 def load_tables_schema():
     """Load the table schema as return the schema in text format."""
-    c = get_db().cursor()
+    conn = get_db()
+    c = conn.cursor()
     c.execute("SELECT table_name, column_name"
               " FROM information_schema.columns"
               f" WHERE table_schema = 'github';")
@@ -114,6 +119,7 @@ def load_tables_schema():
             table_schemas[table_name] = []
         table_schemas[table_name].append(col_name)
 
+    close_db(conn)
     schema = '\n'.join([f"table name: {k}, table columns: {','.join(v)}" for k, v in table_schemas.items()])
     return schema
 
@@ -143,9 +149,12 @@ def question2sql(schemas, question):
 
 
 def execute(query):
-    cur = get_db().cursor()
+    conn = get_db()
+    cur = conn.cursor()
     cur.execute(query)
-    return cur.fetchall()
+    res = cur.fetchall()
+    close_db(conn)
+    return res
 
 
 def describe(question, rows):
