@@ -1,5 +1,6 @@
 import json
 import re
+import logging
 
 import requests
 from requests.auth import HTTPBasicAuth
@@ -9,26 +10,38 @@ from openai import AzureOpenAI, OpenAI
 import mysql.connector
 from config import Configuration
 
-if Configuration.OpenaiApiType == "azure":
-    client = AzureOpenAI(api_version=Configuration.OpenaiApiVersion,
-                         api_key=Configuration.OpenaiApiKey.strip(),
-                         azure_endpoint=Configuration.OpenaiAzureEndpoint.strip())
-else:
-    client = OpenAI(api_key=Configuration.OpenaiApiKey.strip())
 
-conn = mysql.connector.connect(
-    host=Configuration.MysqlHost,
-    user=Configuration.MysqlUser,
-    password=Configuration.MysqlPasswd,
-    database=Configuration.MysqlName,
-    client_flags=[mysql.connector.ClientFlag.SSL],
-    ssl_ca='./DigiCertGlobalRootCA.crt.pem',
-    ssl_disabled=False,
-    port=3306
-)
+logger = logging.getLogger('githubmetadata')
+
+cnxpool = mysql.connector.pooling.MySQLConnectionPool(pool_name="mypool",
+                                                      pool_size=10,
+                                                      host=Configuration.MysqlHost,
+                                                      user=Configuration.MysqlUser,
+                                                      password=Configuration.MysqlPasswd,
+                                                      database=Configuration.MysqlName,
+                                                      client_flags=[mysql.connector.ClientFlag.SSL],
+                                                      ssl_ca='./DigiCertGlobalRootCA.crt.pem',
+                                                      ssl_disabled=False,
+                                                      port=3306)
+
+
+def get_openai_client():
+    if Configuration.OpenaiApiType == "azure":
+        client = AzureOpenAI(api_version=Configuration.OpenaiApiVersion,
+                             api_key=Configuration.OpenaiApiKey.strip(),
+                             azure_endpoint=Configuration.OpenaiAzureEndpoint.strip())
+    else:
+        client = OpenAI(api_key=Configuration.OpenaiApiKey.strip())
+    return client
+
+
+def get_db():
+    conn = cnxpool.get_connection()
+    return conn
 
 
 def load_topic(topic):
+    conn = get_db()
     cursor = conn.cursor()
     cursor.execute('''CREATE TABLE IF NOT EXISTS repos  
                      (id INTEGER PRIMARY KEY, name TEXT, full_name TEXT, owner_id INTEGER, owner_login TEXT, owner_type TEXT, html_url TEXT,
@@ -79,16 +92,16 @@ def load_topic(topic):
                  data['watchers'],
                  data['default_branch'], data['score']))
         conn.commit()
-        print("Dumped page {} {}".format(topic, page_id))
+        logger.info("Dumped page {} {}".format(topic, page_id))
         page_id += 1
         time.sleep(2)
 
-    print(f"Finished dumping pages for {topic}")
+    logger.info(f"Finished dumping pages for {topic}")
 
 
 def load_tables_schema():
     """Load the table schema as return the schema in text format."""
-    c = conn.cursor()
+    c = get_db().cursor()
     c.execute("SELECT table_name, column_name"
               " FROM information_schema.columns"
               f" WHERE table_schema = 'github';")
@@ -108,21 +121,21 @@ def load_tables_schema():
 def question2sql(schemas, question):
     prompt = ("MySql tables schemas:\n\n```{}```"
               "\n\nPlease generate a query to answer question: ```{}```\n\n"
-              "Query (enclose in parentheses): ".format(schemas, question))
-    print(prompt)
-    response = client.chat.completions.create(model=Configuration.OpenaiModel,
-                                              messages=[{"role": "system",
-                                                         "content": "You are a database expert that helps people generate queries for their questions "
-                                                                    "based on given table schemas."},
-                                                        {"role": "user", "content": prompt}],
-                                              temperature=0,
-                                              max_tokens=1000,
-                                              top_p=1,
-                                              frequency_penalty=0,
-                                              presence_penalty=0,
-                                              stop=["#", ";"])
+              "Query (please enclose the query with `()`): ".format(schemas, question))
+    logger.info(prompt)
+    response = get_openai_client().chat.completions.create(model=Configuration.OpenaiModel,
+                                                           messages=[{"role": "system",
+                                                                      "content": "You are a database expert that helps people generate queries for their questions "
+                                                                                 "based on given table schemas."},
+                                                                     {"role": "user", "content": prompt}],
+                                                           temperature=0,
+                                                           max_tokens=1000,
+                                                           top_p=1,
+                                                           frequency_penalty=0,
+                                                           presence_penalty=0,
+                                                           stop=["#", ";"])
     msg = response.choices[0].message.content
-    print(msg)
+    logger.info(msg)
     matches = re.search('\((.*?)\)', msg)
     if matches:
         return matches.group(1)
@@ -130,7 +143,7 @@ def question2sql(schemas, question):
 
 
 def execute(query):
-    cur = conn.cursor()
+    cur = get_db().cursor()
     cur.execute(query)
     return cur.fetchall()
 
@@ -143,17 +156,17 @@ def describe(question, rows):
               "Your description should focus on the question and the answer to the question."
               "Don't mention how the result generated as the description will be presented to end users."
               "Description: ").format(question, rows)
-    print(prompt)
-    response = client.chat.completions.create(model=Configuration.OpenaiModel,
-                                              messages=[{"role": "system",
-                                                         "content": "You are an assistant that explains query results to people."},
-                                                        {"role": "user", "content": prompt}],
-                                              temperature=0,
-                                              max_tokens=1000,
-                                              top_p=1,
-                                              frequency_penalty=0,
-                                              presence_penalty=0,
-                                              stop=["#", ";"])
+    logger.info(prompt)
+    response = get_openai_client().chat.completions.create(model=Configuration.OpenaiModel,
+                                                           messages=[{"role": "system",
+                                                                      "content": "You are an assistant that explains query results to people."},
+                                                                     {"role": "user", "content": prompt}],
+                                                           temperature=0,
+                                                           max_tokens=1000,
+                                                           top_p=1,
+                                                           frequency_penalty=0,
+                                                           presence_penalty=0,
+                                                           stop=["#", ";"])
     msg = response.choices[0].message.content
     return msg
 

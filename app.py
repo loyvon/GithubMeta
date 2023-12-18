@@ -21,7 +21,7 @@ def serve(path):
 @limiter.limit("10/hour")  # Limit to 10 requests per hour for this route
 def search():
     question = request.args.get('question', '')  # Get search query parameter
-    print(f'You searched for: {question}')
+    utils.logger.info(f'You searched for: {question}')
     sql = utils.question2sql(utils.load_tables_schema(), question)
     if sql is None:
         return f"Failed to answer: {question}"
@@ -34,8 +34,8 @@ def search():
 @limiter.limit("10/hour")
 def add_topic():
     topic = request.args.get('topic', '')  # Get search query parameter
-    print(f'Add topic: {topic}')
     utils.load_topic(topic)
+    utils.logger.info(f'Added topic: {topic}')
     return None
 
 
