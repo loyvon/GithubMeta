@@ -17,7 +17,7 @@ function App() {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100vh' }}>
-      <h1>GithubMeta</h1>
+      <h1>Github Meta</h1>
       <div style={{ display: 'flex', marginBottom: '20px' }}>
         <input type="text" placeholder="Search..." style={{ padding: '10px', fontSize: '16px' }} onChange={handleInputChange} />
         <button onClick={handleClick} style={{ marginLeft: '10px' }}>Search</button>

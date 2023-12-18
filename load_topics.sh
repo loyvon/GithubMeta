@@ -1,0 +1,1 @@
+curl https://githubmeta.azurewebsites.net/api/add_topic?topic=$1

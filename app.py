@@ -11,7 +11,7 @@ limiter = Limiter(app=app, key_func=get_remote_address, default_limits=["400 per
 @app.route('/', defaults={'path': ''})
 @app.route('/<path:path>')
 def serve(path):
-    if path != "" and not path.startswith("static"):
+    if not path.startswith("static"):
         return send_from_directory(app.static_folder, 'index.html')
     else:
         return send_from_directory(app.static_folder, path)
@@ -34,8 +34,9 @@ def search():
 @limiter.limit("10/hour")
 def add_topic():
     topic = request.args.get('topic', '')  # Get search query parameter
-    print(f'Add topic: {topic}')
     utils.load_topic(topic)
+    print(f'Added topic: {topic}')
+    return None
 
 
 if __name__ == '__main__':
