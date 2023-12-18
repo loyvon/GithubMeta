@@ -138,11 +138,12 @@ def question2sql(schemas, question):
         stop=["#", ";"]
     )
     msg = response.choices[0].message.content
+    print(f'Generated query: \n{msg}\n')
     if msg.startswith("```"):
         msg.strip('```')
     if msg.startswith("sql"):
         msg.strip("sql")
-    print(msg)
+    print(f'Reformatted query:\n{msg}\n')
     matches = re.search('(SELECT.*?)', msg, re.DOTALL)
     if matches:
         return matches.group(1)

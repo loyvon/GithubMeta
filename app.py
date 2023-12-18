@@ -43,5 +43,12 @@ def add_topic():
     return None
 
 
+@app.route('/api/sql', defaults={'query': ''})
+@app.route('/<query:query>')
+@limiter.limit("10/hour")
+def execute(query):
+    return utils.execute(query)
+
+
 if __name__ == '__main__':
     app.run(use_reloader=True, port=8008, threaded=True)
