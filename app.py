@@ -33,6 +33,10 @@ def search():
 @app.route('/api/add_topic')
 @limiter.limit("10/hour")
 def add_topic():
+    # init topics
+    # "database", "big-data", "data-analytics", "data-visualization", "programming-language",
+    #               "distributed-system",
+    #               "artificial-intelligence", "machine-learning", "deep-learning"
     topic = request.args.get('topic', '')  # Get search query parameter
     utils.load_topic(topic)
     print(f'Added topic: {topic}')
