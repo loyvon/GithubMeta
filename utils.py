@@ -1,6 +1,7 @@
 import json
 import re
 import logging
+import sys
 
 import requests
 from requests.auth import HTTPBasicAuth
@@ -13,6 +14,8 @@ from config import Configuration
 
 logger = logging.getLogger('githubmetadata')
 logger.setLevel(logging.DEBUG)
+handler = logging.StreamHandler(stream=sys.stdout)
+logger.addHandler(handler)
 
 
 def get_openai_client():
