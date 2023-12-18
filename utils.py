@@ -12,12 +12,6 @@ import mysql.connector
 from config import Configuration
 
 
-logger = logging.getLogger('githubmetadata')
-logger.setLevel(logging.DEBUG)
-handler = logging.StreamHandler(stream=sys.stdout)
-logger.addHandler(handler)
-
-
 def get_openai_client():
     if Configuration.OpenaiApiType == "azure":
         client = AzureOpenAI(api_version=Configuration.OpenaiApiVersion,
@@ -68,7 +62,7 @@ def load_topic(topic):
                                 auth=HTTPBasicAuth(Configuration.GithubUsername, Configuration.GithubToken),
                                 headers=headers)
         if not response.ok:
-            logger.error(response.text)
+            print(response.text)
             break
         full_data = json.loads(response.text)
         for data in full_data['items']:
@@ -98,11 +92,11 @@ def load_topic(topic):
                  data['watchers'],
                  data['default_branch'], data['score']))
         conn.commit()
-        logger.info("Dumped page {} {}".format(topic, page_id))
+        print("Dumped page {} {}".format(topic, page_id))
         page_id += 1
         time.sleep(2)
 
-    logger.info(f"Finished dumping pages for {topic}")
+    print(f"Finished dumping pages for {topic}")
     close_db(conn)
 
 
@@ -131,7 +125,7 @@ def question2sql(schemas, question):
     prompt = ("MySql tables schemas:\n\n```{}```"
               "\n\nPlease generate a query to answer question: ```{}```\n\n"
               "Query (please enclose the query with `()`): ".format(schemas, question))
-    logger.info(prompt)
+    print(prompt)
     response = get_openai_client().chat.completions.create(model=Configuration.OpenaiModel,
                                                            messages=[{"role": "system",
                                                                       "content": "You are a database expert that helps people generate queries for their questions "
@@ -144,7 +138,7 @@ def question2sql(schemas, question):
                                                            presence_penalty=0,
                                                            stop=["#", ";"])
     msg = response.choices[0].message.content
-    logger.info(msg)
+    print(msg)
     matches = re.search('\((.*?)\)', msg)
     if matches:
         return matches.group(1)
@@ -168,7 +162,7 @@ def describe(question, rows):
               "Your description should focus on the question and the answer to the question."
               "Don't mention how the result generated as the description will be presented to end users."
               "Description: ").format(question, rows)
-    logger.info(prompt)
+    print(prompt)
     response = get_openai_client().chat.completions.create(model=Configuration.OpenaiModel,
                                                            messages=[{"role": "system",
                                                                       "content": "You are an assistant that explains query results to people."},
