@@ -139,7 +139,7 @@ def question2sql(schemas, question):
                                                            stop=["#", ";"])
     msg = response.choices[0].message.content
     print(msg)
-    matches = re.search('\((.*?)\)', msg)
+    matches = re.search('\((.*?)\)', msg, re.DOTALL)
     if matches:
         return matches.group(1)
     return None
