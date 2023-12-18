@@ -140,12 +140,9 @@ def question2sql(schemas, question):
     )
     msg = response.choices[0].message.content
     print(f'Msg from model: \n{msg}\n')
-    matches = re.search('<(.*?)>', msg, re.DOTALL)
-    if matches:
-        sql = matches.group(1)
-        print(f"Generated query: {sql}")
-        return sql
-    return None
+    sql = msg.strip('<').strip('>').strip('```').strip('sql')
+    print(f"Generated query: {sql}")
+    return sql
 
 
 def execute(query):
