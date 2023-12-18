@@ -121,7 +121,8 @@ def load_tables_schema():
 def question2sql(schemas, question):
     prompt = ("MySql tables schemas:\n\n```{}```"
               "\n\nPlease generate a query to answer question: ```{}```\n\n"
-              "Query (please enclose the query with `()`): ".format(schemas, question))
+              "Start the query with `<` and end the query with `>`, example: `<SELECT * FROM repos LIMIT 1>`."
+              "Query: ".format(schemas, question))
     print(prompt)
     response = get_openai_client().chat.completions.create(
         model=Configuration.OpenaiModel,
@@ -138,15 +139,12 @@ def question2sql(schemas, question):
         stop=["#", ";"]
     )
     msg = response.choices[0].message.content
-    print(f'Generated query: \n{msg}\n')
-    if msg.startswith("```"):
-        msg.strip('```')
-    if msg.startswith("sql"):
-        msg.strip("sql")
-    print(f'Reformatted query:\n{msg}\n')
-    matches = re.search('(SELECT.*?)', msg, re.DOTALL)
+    print(f'Msg from model: \n{msg}\n')
+    matches = re.search('<(.*?)>', msg, re.DOTALL)
     if matches:
-        return matches.group(1)
+        sql = matches.group(1)
+        print(f"Generated query: {sql}")
+        return sql
     return None
 
 
