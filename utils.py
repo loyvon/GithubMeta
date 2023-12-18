@@ -1,8 +1,5 @@
 import json
 import re
-import logging
-import sys
-
 import requests
 from requests.auth import HTTPBasicAuth
 import time
@@ -24,15 +21,15 @@ def get_openai_client():
 
 def get_db():
     conn = mysql.connector.connect(pool_name="mypool",
-                                                      pool_size=10,
-                                                      host=Configuration.MysqlHost,
-                                                      user=Configuration.MysqlUser,
-                                                      password=Configuration.MysqlPasswd,
-                                                      database=Configuration.MysqlName,
-                                                      client_flags=[mysql.connector.ClientFlag.SSL],
-                                                      ssl_ca='./DigiCertGlobalRootCA.crt.pem',
-                                                      ssl_disabled=False,
-                                                      port=3306)
+                                   pool_size=10,
+                                   host=Configuration.MysqlHost,
+                                   user=Configuration.MysqlUser,
+                                   password=Configuration.MysqlPasswd,
+                                   database=Configuration.MysqlName,
+                                   client_flags=[mysql.connector.ClientFlag.SSL],
+                                   ssl_ca='./DigiCertGlobalRootCA.crt.pem',
+                                   ssl_disabled=False,
+                                   port=3306)
     return conn
 
 
@@ -124,25 +121,28 @@ def load_tables_schema():
 def question2sql(schemas, question):
     prompt = ("MySql tables schemas:\n\n```{}```"
               "\n\nPlease generate a query to answer question: ```{}```\n\n"
-              "Query (please enclose the query with `()`): ".format(schemas, question))
+              "Start the query with `<` and end the query with `>`, example: `<SELECT * FROM repos LIMIT 1>`."
+              "Query: ".format(schemas, question))
     print(prompt)
-    response = get_openai_client().chat.completions.create(model=Configuration.OpenaiModel,
-                                                           messages=[{"role": "system",
-                                                                      "content": "You are a database expert that helps people generate queries for their questions "
-                                                                                 "based on given table schemas."},
-                                                                     {"role": "user", "content": prompt}],
-                                                           temperature=0,
-                                                           max_tokens=1000,
-                                                           top_p=1,
-                                                           frequency_penalty=0,
-                                                           presence_penalty=0,
-                                                           stop=["#", ";"])
+    response = get_openai_client().chat.completions.create(
+        model=Configuration.OpenaiModel,
+        messages=[{"role": "system",
+                   "content":
+                       "You are a database expert that helps people generate queries for their questions "
+                       "based on given table schemas."},
+                  {"role": "user", "content": prompt}],
+        temperature=0,
+        max_tokens=1000,
+        top_p=1,
+        frequency_penalty=0,
+        presence_penalty=0,
+        stop=["#", ";"]
+    )
     msg = response.choices[0].message.content
-    print(msg)
-    matches = re.search('\((.*?)\)', msg, re.DOTALL)
-    if matches:
-        return matches.group(1)
-    return None
+    print(f'Msg from model: \n{msg}\n')
+    sql = msg.strip('<').strip('>').strip('```').strip('sql')
+    print(f"Generated query: {sql}")
+    return sql
 
 
 def execute(query):
@@ -178,14 +178,6 @@ def describe(question, rows):
 
 
 if __name__ == "__main__":
-    # init topics
-    # "database", "big-data", "data-analytics", "data-visualization", "programming-language",
-    #               "distributed-system",
-    #               "artificial-intelligence", "machine-learning", "deep-learning"
-    topics = []
-    for topic in topics:
-        load_topic(topic)
-
     question = "Which repository has the most stargazers?"
     sql = question2sql(load_tables_schema(), question)
     res = execute(sql)
