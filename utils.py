@@ -198,7 +198,7 @@ def describe(question, rows):
               "to limit the response in 300 words."
               "Your description should focus on the question and the answer to the question."
               "Don't mention how the result generated as the description will be presented to end users."
-              "Description: ").format(question, rows)
+              "Answer: ").format(question, rows)
     print(prompt)
     response = get_openai_client().chat.completions.create(model=Configuration.OpenaiModel,
                                                            messages=[{"role": "system",
@@ -226,7 +226,7 @@ def retrieve_repos(year, month, day, hour):
     """
     Retrieve repos active last week.
     """
-    repos = set()
+    repos = {}
     url = f"https://data.gharchive.org/{year}-{month:02d}-{day:02d}-{hour}.json.gz"
     filename = os.path.join(tempfile.gettempdir(), os.path.basename(url))
     print(f"Downloading {url}...")
@@ -234,27 +234,28 @@ def retrieve_repos(year, month, day, hour):
     with gzip.open(filename, 'rt') as f:
         for line in f:
             data = json.loads(line)
-            repo = data['repo']['name']
-            repos.add(repo)
+            if data['public'] and ((data['type'] == "PullRequestEvent" and data['payload']['action'] == 'closed')
+                     or (data['type'] == 'WatchEvent')):
+                repo = data['repo']['name']
+                if repo not in repos:
+                    repos[repo] = 0
+                repos[repo] += 1
     os.remove(filename)
-    return repos
+    repos = [k for k, v in sorted(repos.items(), key=lambda item: -item[1])]
+    return repos[:2000] # Only first 2000 repos
 
 
-def load_active_repos(date: datetime):
+def load_repo(repo_name):
+    url = f"https://api.github.com/repos/{repo_name}"
+    headers = {'Accept': 'application/vnd.github+json'}
+    response = requests.get(url,
+                            auth=HTTPBasicAuth(Configuration.GithubUsername, Configuration.GithubToken),
+                            headers=headers)
+    if not response.ok:
+        print(response.text)
+        return
     conn = get_db()
-    repos = retrieve_repos(date.year, date.month, date.day, date.hour)
-    for repo in repos:
-        print(f"repo name: {repo}")
-        url = f"https://api.github.com/repos/{repo}"
-        headers = {'Accept': 'application/vnd.github+json'}
-        response = requests.get(url,
-                                auth=HTTPBasicAuth(Configuration.GithubUsername, Configuration.GithubToken),
-                                headers=headers)
-        if not response.ok:
-            print(response.text)
-            continue
-        load_repo_into_db(conn, json.loads(response.text))
-        # rate limit from Github ReST API.
-        time.sleep(1)
-        conn.commit()
+    load_repo_into_db(conn, json.loads(response.text))
+    conn.commit()
     close_db(conn)
+    print(f'loaded repo: {repo_name}')

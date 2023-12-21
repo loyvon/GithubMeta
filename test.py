@@ -15,4 +15,5 @@ def test_get_active_repo():
 
 
 if __name__ == "__main__":
-    test_get_active_repo()
+    # utils.init_db()
+    utils.load_active_repos(datetime.datetime.now() - datetime.timedelta(hours=24))
