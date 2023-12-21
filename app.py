@@ -34,7 +34,7 @@ def search():
     return description
 
 
-@app.route('/api/load_repos', methods='POST')
+@app.route('/api/load_repos', methods=['POST'])
 @limiter.limit("10/hour")
 def add_topic():
     repo_list = json.loads(request.args.get("repos", ''))['items']  # Get search query parameter
