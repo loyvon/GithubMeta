@@ -19,3 +19,5 @@ def test_load_repo():
 
 if __name__ == "__main__":
     # utils.init_db()
+    test_load_repo()
+    test_e2e()
