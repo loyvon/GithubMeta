@@ -20,7 +20,7 @@ function App() {
       <h1>Github Meta</h1>
       <div style={{ display: 'flex', marginBottom: '20px' }}>
         <input type="text" placeholder="Search..." style={{ padding: '10px', fontSize: '16px' }} onChange={handleInputChange} />
-        <button onClick={handleClick} style={{ marginLeft: '10px' }}>Search</button>
+        <button onClick={handleClick} style={{ marginLeft: '10px' }}>Get Answer</button>
       </div>
       {response && <p>{response}</p>}
     </div>

@@ -1,6 +1,7 @@
 annotated-types==0.6.0
 anyio==4.1.0
 attrs==23.1.0
+azure-functions
 blinker==1.7.0
 certifi==2023.11.17
 charset-normalizer==3.3.2
@@ -10,10 +11,10 @@ cmakelang==0.6.13
 Deprecated==1.2.14
 distro==1.8.0
 exceptiongroup==1.2.0
-flasgger==0.9.7.1
 Flask==3.0.0
 Flask-Cors==4.0.0
 Flask-Limiter==3.5.0
+google-cloud-bigquery
 h11==0.14.0
 httpcore==1.0.2
 httpx==0.25.2
