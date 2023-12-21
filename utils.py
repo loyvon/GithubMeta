@@ -1,6 +1,7 @@
 import gzip
 import json
 import os
+import tempfile
 import zlib
 from datetime import datetime
 
@@ -221,30 +222,27 @@ def download_file(url, filename):
                 f.write(chunk)
 
 
-def retrieve_repos(year, month, day):
+def retrieve_repos(year, month, day, hour):
     """
     Retrieve repos active last week.
     """
     repos = set()
-    for hour in range(0, 24):
-        for day_offset in range(7):
-            day_str = f"{year}-{month:02d}-{day - day_offset:02d}-{hour}"
-            url = f"https://data.gharchive.org/{day_str}.json.gz"
-            filename = os.path.basename(url)
-            print(f"Downloading {url}...")
-            download_file(url, filename)
-            with gzip.open(filename, 'rt') as f:
-                for line in f:
-                    data = json.loads(line)
-                    repo = data['repo']['name']
-                    repos.add(repo)
-            os.remove(filename)
+    url = f"https://data.gharchive.org/{year}-{month:02d}-{day:02d}-{hour}.json.gz"
+    filename = os.path.join(tempfile.gettempdir(), os.path.basename(url))
+    print(f"Downloading {url}...")
+    download_file(url, filename)
+    with gzip.open(filename, 'rt') as f:
+        for line in f:
+            data = json.loads(line)
+            repo = data['repo']['name']
+            repos.add(repo)
+    os.remove(filename)
     return repos
 
 
 def load_active_repos(date: datetime):
     conn = get_db()
-    repos = retrieve_repos(date.year, date.month, date.day)
+    repos = retrieve_repos(date.year, date.month, date.day, date.hour)
     for repo in repos:
         print(f"repo name: {repo}")
         url = f"https://api.github.com/repos/{repo}"
