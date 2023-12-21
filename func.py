@@ -12,4 +12,3 @@ def LoadRepos(myTimer: func.TimerRequest) -> None:
         logging.info('The timer is past due!')
     utils.load_active_repos(datetime.datetime.now() - datetime.timedelta(days=1))
     logging.info('Python timer trigger function executed.')
-
