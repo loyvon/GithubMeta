@@ -15,9 +15,7 @@ def LoadRepos(myTimer: func.TimerRequest) -> None:
         logging.info('The timer is past due!')
     date = datetime.datetime.now() - datetime.timedelta(hours=2)
     repos = utils.retrieve_repos(date.year, date.month, date.day, date.hour)
-    payload = json.dumps({
-            "items": repos
-        })
+    payload = {"items": repos}
     response = requests.post("https://githubmeta.azurewebsites.net/api/load_repos", json=payload)
     logging.info(response.text)
     logging.info('Python timer trigger function executed.')
