@@ -1,5 +1,7 @@
 import datetime
 
+import requests
+
 import utils
 
 
@@ -10,10 +12,10 @@ def test_e2e():
     print(utils.describe(question, res))
 
 
-def test_get_active_repo():
-    utils.load_active_repos(datetime.datetime.now() - datetime.timedelta(days=1))
+def test_load_repo():
+    payload = {"items": ["oliverklee/ext-oelib"]}
+    requests.post("http://127.0.0.1:8008/api/load_repos", payload)
 
 
 if __name__ == "__main__":
     # utils.init_db()
-    utils.load_active_repos(datetime.datetime.now() - datetime.timedelta(hours=24))
