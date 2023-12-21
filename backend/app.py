@@ -4,7 +4,7 @@ from flask_limiter.util import get_remote_address
 
 import utils
 
-app = Flask(__name__, static_folder='search/build')
+app = Flask(__name__, static_folder='frontend/build')
 limiter = Limiter(app=app, key_func=get_remote_address, default_limits=["400 per day", "100 per hour"])
 
 

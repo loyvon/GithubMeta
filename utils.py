@@ -1,5 +1,9 @@
+import gzip
 import json
-import re
+import os
+import zlib
+from datetime import datetime
+
 import requests
 from requests.auth import HTTPBasicAuth
 import time
@@ -37,7 +41,7 @@ def close_db(conn):
     conn.close()
 
 
-def load_topic(topic):
+def init_db():
     conn = get_db()
     cursor = conn.cursor()
     cursor.execute('''CREATE TABLE IF NOT EXISTS repos  
@@ -48,7 +52,12 @@ def load_topic(topic):
                         archived BOOLEAN, disabled BOOLEAN, open_issues_count INTEGER, license TEXT, allow_forking BOOLEAN, 
                         is_template BOOLEAN, topics TEXT, visibility TEXT, forks INTEGER, open_issues INTEGER, 
                         watchers INTEGER, default_branch TEXT, score REAL)''')
+    conn.commit()
+    close_db(conn)
 
+
+def load_topic(topic):
+    conn = get_db()
     headers = {'Accept': 'application/vnd.github+json'}
     page_id = 1
     while True:
@@ -61,40 +70,67 @@ def load_topic(topic):
         if not response.ok:
             print(response.text)
             break
-        full_data = json.loads(response.text)
-        for data in full_data['items']:
-            cursor.execute(
-                "INSERT IGNORE INTO repos "
-                "(id, name, full_name, owner_id, owner_login, owner_type, html_url, "
-                "description, created_at, updated_at, pushed_at, clone_url, size, "
-                "stargazers_count, watchers_count, language, has_issues, has_projects,"
-                "has_downloads, has_wiki, has_pages, has_discussions, forks_count,"
-                "archived, disabled, open_issues_count, license, allow_forking,"
-                "is_template, topics, visibility, forks, open_issues,"
-                "watchers, default_branch, score)"
-                "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, "
-                "%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
-                (data['id'], data['name'], data['full_name'], data['owner']['id'], data['owner']['login'],
-                 data['owner']['type'], data['html_url'], data['description'], data['created_at'],
-                 data['updated_at'],
-                 data['pushed_at'], data['clone_url'], data['size'], data['stargazers_count'],
-                 data['watchers_count'],
-                 data['language'], data['has_issues'], data['has_projects'], data['has_downloads'],
-                 data['has_wiki'],
-                 data['has_pages'], data['has_discussions'], data['forks_count'], data['archived'],
-                 data['disabled'],
-                 data['open_issues_count'], data['license']['key'] if data['license'] is not None else None,
-                 data['allow_forking'], data['is_template'],
-                 ', '.join(data['topics']), data['visibility'], data['forks'], data['open_issues'],
-                 data['watchers'],
-                 data['default_branch'], data['score']))
-        conn.commit()
+        for data in json.loads(response.text)["items"]:
+            load_repo_into_db(conn, data)
         print("Dumped page {} {}".format(topic, page_id))
         page_id += 1
         time.sleep(2)
-
-    print(f"Finished dumping pages for {topic}")
+    conn.commit()
     close_db(conn)
+    print(f"Finished dumping pages for {topic}")
+
+
+def load_activity(date, ofilepath):
+    """Load the github activities of the given day."""
+    url = f"https://data.gharchive.org/{date}-0.json.gz"
+    print(url)
+    remote_file = requests.get(url, stream=True)
+    if not remote_file.ok:
+        print(remote_file.text)
+        return
+    # Using zlib.MAX_WBITS|32 apparently forces zlib to detect the appropriate header for the data
+    decompressor = zlib.decompressobj(zlib.MAX_WBITS | 32)
+    # Stream this file in as a request - pull the content in just a little at a time
+    with open(ofilepath, 'wb') as output:
+        # Chunk size can be adjusted to test performance
+        for chunk in remote_file.iter_content(chunk_size=8192):
+            # Decompress the current chunk
+            decompressed_chunk = decompressor.decompress(chunk)
+            output.write(decompressed_chunk)
+
+
+
+
+def load_repo_into_db(conn, data):
+    cursor = conn.cursor()
+    cursor.execute(
+        "REPLACE INTO repos "
+        "(id, name, full_name, owner_id, owner_login, owner_type, html_url, "
+        "description, created_at, updated_at, pushed_at, clone_url, size, "
+        "stargazers_count, watchers_count, language, has_issues, has_projects,"
+        "has_downloads, has_wiki, has_pages, has_discussions, forks_count,"
+        "archived, disabled, open_issues_count, license, allow_forking,"
+        "is_template, topics, visibility, forks, open_issues,"
+        "watchers, default_branch, score)"
+        "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, "
+        "%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+        (data['id'], data['name'], data['full_name'], data['owner']['id'], data['owner']['login'],
+         data['owner']['type'], data['html_url'], data['description'], data['created_at'],
+         data['updated_at'],
+         data['pushed_at'], data['clone_url'], data['size'], data['stargazers_count'],
+         data['watchers_count'],
+         data['language'], data['has_issues'], data['has_projects'], data['has_downloads'],
+         data['has_wiki'],
+         data['has_pages'], data['has_discussions'], data['forks_count'], data['archived'],
+         data['disabled'],
+         data['open_issues_count'],
+         data['license']['key'] if data['license'] is not None else None,
+         data['allow_forking'],
+         data['is_template'],
+         ', '.join(data['topics']), data['visibility'], data['forks'], data['open_issues'],
+         data['watchers'],
+         data['default_branch'],
+         data['score'] if 'score' in data is not None else None))
 
 
 def load_tables_schema():
@@ -177,8 +213,50 @@ def describe(question, rows):
     return msg
 
 
-if __name__ == "__main__":
-    question = "Which repository has the most stargazers?"
-    sql = question2sql(load_tables_schema(), question)
-    res = execute(sql)
-    print(describe(question, res))
+def download_file(url, filename):
+    with requests.get(url, stream=True) as r:
+        r.raise_for_status()
+        with open(filename, 'wb') as f:
+            for chunk in r.iter_content(chunk_size=8192):
+                f.write(chunk)
+
+
+def retrieve_repos(year, month, day):
+    """
+    Retrieve repos active last week.
+    """
+    repos = set()
+    for hour in range(0, 24):
+        for day_offset in range(7):
+            day_str = f"{year}-{month:02d}-{day - day_offset:02d}-{hour}"
+            url = f"https://data.gharchive.org/{day_str}.json.gz"
+            filename = os.path.basename(url)
+            print(f"Downloading {url}...")
+            download_file(url, filename)
+            with gzip.open(filename, 'rt') as f:
+                for line in f:
+                    data = json.loads(line)
+                    repo = data['repo']['name']
+                    repos.add(repo)
+            os.remove(filename)
+    return repos
+
+
+def load_active_repos(date: datetime):
+    conn = get_db()
+    repos = retrieve_repos(date.year, date.month, date.day)
+    for repo in repos:
+        print(f"repo name: {repo}")
+        url = f"https://api.github.com/repos/{repo}"
+        headers = {'Accept': 'application/vnd.github+json'}
+        response = requests.get(url,
+                                auth=HTTPBasicAuth(Configuration.GithubUsername, Configuration.GithubToken),
+                                headers=headers)
+        if not response.ok:
+            print(response.text)
+            continue
+        load_repo_into_db(conn, json.loads(response.text))
+        # rate limit from Github ReST API.
+        time.sleep(1)
+        conn.commit()
+    close_db(conn)
