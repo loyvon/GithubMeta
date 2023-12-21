@@ -1,6 +1,6 @@
 import json
 from concurrent.futures import ThreadPoolExecutor
-from flask import Flask, send_from_directory, request
+from flask import Flask, send_from_directory, request, Response
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 
@@ -37,14 +37,14 @@ def search():
 @app.route('/api/load_repos', methods=['POST'])
 @limiter.limit("10/hour")
 def add_topic():
-    repo_list = json.loads(request.args.get("repos", ''))['items']  # Get search query parameter
+    repo_list = request.get_json()['items']  # Get search query parameter
 
     def load_repos():
         for repo in repo_list:
             utils.load_repo(repo)
 
     executor.submit(load_repos)
-    return None
+    return Response(), 200
 
 
 if __name__ == '__main__':
