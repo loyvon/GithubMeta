@@ -5,11 +5,8 @@ import tempfile
 import zlib
 
 import openai
-import pandas as pd
-from lida import llm, Manager
 
 import requests
-from llmx import TextGenerationConfig
 from requests.auth import HTTPBasicAuth
 import time
 
@@ -21,10 +18,6 @@ openai.api_type = Configuration.OpenaiApiType
 openai.api_base = Configuration.OpenaiAzureEndpoint.strip()
 openai.api_version = Configuration.OpenaiApiVersion
 openai.api_key = Configuration.OpenaiApiKey.strip()
-
-import matplotlib
-
-matplotlib.use('agg')
 
 
 def get_db():
@@ -58,49 +51,6 @@ def init_db():
                         watchers INTEGER, default_branch TEXT, score REAL)''')
     conn.commit()
     close_db(conn)
-
-
-def load_topic(topic):
-    conn = get_db()
-    headers = {'Accept': 'application/vnd.github+json'}
-    page_id = 1
-    while True:
-        url = ("https://api.github.com/search/repositories?"
-               "q={}+in%3Atopics&sort=stars&order=desc&page={}&per_page=100"
-               .format(topic, page_id))
-        response = requests.get(url,
-                                auth=HTTPBasicAuth(Configuration.GithubUsername, Configuration.GithubToken),
-                                headers=headers)
-        if not response.ok:
-            print(response.text)
-            break
-        for data in json.loads(response.text)["items"]:
-            load_repo_into_db(conn, data)
-        print("Dumped page {} {}".format(topic, page_id))
-        page_id += 1
-        time.sleep(2)
-    conn.commit()
-    close_db(conn)
-    print(f"Finished dumping pages for {topic}")
-
-
-def load_activity(date, ofilepath):
-    """Load the github activities of the given day."""
-    url = f"https://data.gharchive.org/{date}-0.json.gz"
-    print(url)
-    remote_file = requests.get(url, stream=True)
-    if not remote_file.ok:
-        print(remote_file.text)
-        return
-    # Using zlib.MAX_WBITS|32 apparently forces zlib to detect the appropriate header for the data
-    decompressor = zlib.decompressobj(zlib.MAX_WBITS | 32)
-    # Stream this file in as a request - pull the content in just a little at a time
-    with open(ofilepath, 'wb') as output:
-        # Chunk size can be adjusted to test performance
-        for chunk in remote_file.iter_content(chunk_size=8192):
-            # Decompress the current chunk
-            decompressed_chunk = decompressor.decompress(chunk)
-            output.write(decompressed_chunk)
 
 
 def load_repo_into_db(conn, data):
@@ -160,6 +110,7 @@ def question2sql(schemas, question):
     prompt = ("MySql tables schemas:\n\n```{}```"
               "\n\nPlease generate a query to answer question: ```{}```\n\n"
               "Start the query with `<` and end the query with `>`, example: `<SELECT * FROM repos LIMIT 1>`."
+              "Requirement: At most 20 rows can be returned."
               "If you are not sure how to generate the query, just respond `<>`"
               "Query: ".format(schemas, question))
     print(prompt)
@@ -186,20 +137,26 @@ def question2sql(schemas, question):
 
 def execute(query):
     conn = get_db()
-    res = pd.read_sql_query(query, conn)
+    cur = conn.cursor()
+    cur.execute(query)
+    res = cur.fetchall()
     close_db(conn)
     return res
 
 
-def describe(question, rows):
+def describe(question, query, rows):
     prompt = ("Here is a question to answer: ```{}```\n"
+              "Here is the query: ```{}```\n"
               "And here is the query result that contains the answer: ```{}```.\n"
               "Please describe the rows in a way that answers the question, and use abbreviation when necessary "
               "to limit the response in 300 words."
               "Your description should focus on the question and the answer to the question."
-              "Don't mention how the result generated as the description will be presented to end users."
-              "Description should be in the format: `you asked xxx, the answer is xxxx.`"
-              "Description: ").format(question, rows)
+              "You should follow the following requirements:"
+              "1. Generate the description in markdown format."
+              "2. The first part is the query result in table format, new lines should be ."
+              "3. The second part is a very brief explanation of the table content."
+              "4. Don't mention the query, focus on question and result."
+              "Description: ").format(question, query, rows)
     print(prompt)
     response = openai.ChatCompletion.create(engine=Configuration.OpenaiModel,
                                             messages=[{"role": "system",
@@ -213,22 +170,6 @@ def describe(question, rows):
                                             stop=["#", ";"])
     msg = response.choices[0].message.content
     return msg
-
-
-def describe_lida(data, query):
-    text_gen = llm(provider="openai", api_type=Configuration.OpenaiApiType, api_base=Configuration.OpenaiAzureEndpoint,
-                   api_key=Configuration.OpenaiApiKey, api_version=Configuration.OpenaiApiVersion)
-    lida = Manager(text_gen=text_gen)
-    textgen_config = TextGenerationConfig(n=1, temperature=0.5, model=Configuration.OpenaiModel, use_cache=True)
-
-    summary = lida.summarize(data,
-                             summary_method="default",
-                             textgen_config=textgen_config)
-    library = "seaborn"
-    charts = lida.visualize(summary=summary, goal=query, textgen_config=textgen_config, library=library)
-
-    explanations = lida.explain(code=charts[0].code, library=library, textgen_config=textgen_config)
-    return charts[0], explanations[0][0]["explanation"]
 
 
 def download_file(url, filename):

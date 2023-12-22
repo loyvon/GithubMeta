@@ -1,10 +1,8 @@
-import json
 import time
 from concurrent.futures import ThreadPoolExecutor
 from flask import Flask, send_from_directory, request, Response, jsonify
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
-import base64
 import utils
 
 app = Flask(__name__, static_folder='frontend/build')
@@ -26,28 +24,18 @@ def serve(path):
 def search():
     question = request.args.get('question', '')  # Get search query parameter
     print(f'Question received: {question}')
-
-    image = None
     description = f"Failed to answer question \"{question}\""
     try:
         sql = utils.question2sql(utils.load_tables_schema(), question)
         if sql is None or sql.isspace():
             return f"Failed to answer question \"{question}\""
         res = utils.execute(sql)
-        description = utils.describe(question, res.to_csv(header=True, index=True))
-        print(f'Answer: {description}')
-        try:
-            with open("chartn.png", "wb") as fh:
-                chart, explanation = utils.describe_lida(res, question)
-                image = chart.raster.encode().decode("utf-8")
-                description = explanation
-                print(explanation)
-        except Exception as ex:
-            print(ex)
+        description = utils.describe(question, sql, res)
+        print(f'Answer:\n{description}')
     except Exception as ex:
         print(f"Failed to answer question \"{question}\": {ex}")
 
-    return jsonify({'image': image, "explanation": description})
+    return description
 
 
 @app.route('/api/load_repos', methods=['POST'])

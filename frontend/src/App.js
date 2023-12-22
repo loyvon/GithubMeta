@@ -1,5 +1,7 @@
 import React, { useState } from 'react';
 import axios from 'axios';
+import Markdown from 'react-markdown';
+import gfm from 'remark-gfm';
 
 function App() {
   const [inputValue, setInputValue] = useState('');
@@ -24,9 +26,8 @@ function App() {
         <button onClick={handleClick} style={{ marginLeft: '1vw', borderRadius: '1.2vh' }}>Get Answer</button>
       </div>
       {response &&
-        <div style={{ maxHeight: '80vh', overflow: 'auto', width: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-          {response.image && <img src={`data:image/jpeg;base64,${response.image}`} alt="Response visual" style={{ maxWidth: '80%' }}/>}
-          <p>{response.explanation}</p>
+        <div style={{ width: '50%', display: 'flex', flexDirection: 'column', alignItems: 'flex-start', overflowX: 'auto' }}>
+          <Markdown remarkPlugins={[gfm]} children={response} />
         </div>
       }
     </div>

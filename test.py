@@ -9,16 +9,8 @@ def test_e2e():
     question = "Which repository has most stargazers?"
     sql = utils.question2sql(utils.load_tables_schema(), question)
     res = utils.execute(sql)
-    print(utils.describe(question, res.to_csv(header=True, index=True)))
+    print(utils.describe(question, sql, res))
 
-    try:
-        import base64
-        with open("chartn.png", "wb") as fh:
-            chart, explanation = utils.describe_lida(res, question)
-            fh.write(base64.decodebytes(chart.raster.encode()))
-            print(explanation)
-    except Exception as ex:
-        print(ex)
 
 def test_load_repo():
     headers = { "contentType": "application/json"}
