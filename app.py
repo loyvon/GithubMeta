@@ -1,4 +1,5 @@
 import json
+import time
 from concurrent.futures import ThreadPoolExecutor
 from flask import Flask, send_from_directory, request, Response
 from flask_limiter import Limiter
@@ -8,7 +9,7 @@ import utils
 
 app = Flask(__name__, static_folder='frontend/build')
 limiter = Limiter(app=app, key_func=get_remote_address, default_limits=["400 per day", "100 per hour"])
-executor = ThreadPoolExecutor(2)
+executor = ThreadPoolExecutor(1)
 
 
 @app.route('/', defaults={'path': ''})
@@ -45,6 +46,7 @@ def add_topic():
     def load_repos():
         for repo in repo_list:
             utils.load_repo(repo)
+            time.sleep(1)
 
     executor.submit(load_repos)
     return Response(), 200
