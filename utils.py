@@ -3,25 +3,28 @@ import json
 import os
 import tempfile
 import zlib
-from datetime import datetime
+
+import openai
+import pandas as pd
+from lida import llm, Manager
 
 import requests
+from llmx import TextGenerationConfig
 from requests.auth import HTTPBasicAuth
 import time
 
-from openai import AzureOpenAI, OpenAI
 import mysql.connector
+
 from config import Configuration
 
+openai.api_type = Configuration.OpenaiApiType
+openai.api_base = Configuration.OpenaiAzureEndpoint.strip()
+openai.api_version = Configuration.OpenaiApiVersion
+openai.api_key = Configuration.OpenaiApiKey.strip()
 
-def get_openai_client():
-    if Configuration.OpenaiApiType == "azure":
-        client = AzureOpenAI(api_version=Configuration.OpenaiApiVersion,
-                             api_key=Configuration.OpenaiApiKey.strip(),
-                             azure_endpoint=Configuration.OpenaiAzureEndpoint.strip())
-    else:
-        client = OpenAI(api_key=Configuration.OpenaiApiKey.strip())
-    return client
+import matplotlib
+
+matplotlib.use('agg')
 
 
 def get_db():
@@ -100,8 +103,6 @@ def load_activity(date, ofilepath):
             output.write(decompressed_chunk)
 
 
-
-
 def load_repo_into_db(conn, data):
     cursor = conn.cursor()
     cursor.execute(
@@ -162,8 +163,8 @@ def question2sql(schemas, question):
               "If you are not sure how to generate the query, just respond `<>`"
               "Query: ".format(schemas, question))
     print(prompt)
-    response = get_openai_client().chat.completions.create(
-        model=Configuration.OpenaiModel,
+    response = openai.ChatCompletion.create(
+        engine=Configuration.OpenaiModel,
         messages=[{"role": "system",
                    "content":
                        "You are a database expert that helps people generate queries for their questions "
@@ -185,9 +186,7 @@ def question2sql(schemas, question):
 
 def execute(query):
     conn = get_db()
-    cur = conn.cursor()
-    cur.execute(query)
-    res = cur.fetchall()
+    res = pd.read_sql_query(query, conn)
     close_db(conn)
     return res
 
@@ -202,18 +201,34 @@ def describe(question, rows):
               "Description should be in the format: `you asked xxx, the answer is xxxx.`"
               "Description: ").format(question, rows)
     print(prompt)
-    response = get_openai_client().chat.completions.create(model=Configuration.OpenaiModel,
-                                                           messages=[{"role": "system",
-                                                                      "content": "You are an assistant that explains query results to people."},
-                                                                     {"role": "user", "content": prompt}],
-                                                           temperature=0,
-                                                           max_tokens=1000,
-                                                           top_p=1,
-                                                           frequency_penalty=0,
-                                                           presence_penalty=0,
-                                                           stop=["#", ";"])
+    response = openai.ChatCompletion.create(engine=Configuration.OpenaiModel,
+                                            messages=[{"role": "system",
+                                                       "content": "You are an assistant that explains query results to people."},
+                                                      {"role": "user", "content": prompt}],
+                                            temperature=0,
+                                            max_tokens=1000,
+                                            top_p=1,
+                                            frequency_penalty=0,
+                                            presence_penalty=0,
+                                            stop=["#", ";"])
     msg = response.choices[0].message.content
     return msg
+
+
+def describe_lida(data, query):
+    text_gen = llm(provider="openai", api_type=Configuration.OpenaiApiType, api_base=Configuration.OpenaiAzureEndpoint,
+                   api_key=Configuration.OpenaiApiKey, api_version=Configuration.OpenaiApiVersion)
+    lida = Manager(text_gen=text_gen)
+    textgen_config = TextGenerationConfig(n=1, temperature=0.5, model=Configuration.OpenaiModel, use_cache=True)
+
+    summary = lida.summarize(data,
+                             summary_method="default",
+                             textgen_config=textgen_config)
+    library = "seaborn"
+    charts = lida.visualize(summary=summary, goal=query, textgen_config=textgen_config, library=library)
+
+    explanations = lida.explain(code=charts[0].code, library=library, textgen_config=textgen_config)
+    return charts[0], explanations[0][0]["explanation"]
 
 
 def download_file(url, filename):
@@ -237,14 +252,14 @@ def retrieve_repos(year, month, day, hour):
         for line in f:
             data = json.loads(line)
             if data['public'] and ((data['type'] == "PullRequestEvent" and data['payload']['action'] == 'closed')
-                     or (data['type'] == 'WatchEvent')):
+                                   or (data['type'] == 'WatchEvent')):
                 repo = data['repo']['name']
                 if repo not in repos:
                     repos[repo] = 0
                 repos[repo] += 1
     os.remove(filename)
     repos = [k for k, v in sorted(repos.items(), key=lambda item: -item[1])]
-    return repos[:2000] # Only first 2000 repos
+    return repos[:2000]  # Only first 2000 repos
 
 
 def load_repo(repo_name):
