@@ -159,6 +159,7 @@ def question2sql(schemas, question):
     prompt = ("MySql tables schemas:\n\n```{}```"
               "\n\nPlease generate a query to answer question: ```{}```\n\n"
               "Start the query with `<` and end the query with `>`, example: `<SELECT * FROM repos LIMIT 1>`."
+              "If you are not sure how to generate the query, just respond `<>`"
               "Query: ".format(schemas, question))
     print(prompt)
     response = get_openai_client().chat.completions.create(

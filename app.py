@@ -25,13 +25,16 @@ def serve(path):
 def search():
     question = request.args.get('question', '')  # Get search query parameter
     print(f'You asked: {question}')
-    sql = utils.question2sql(utils.load_tables_schema(), question)
-    if sql is None:
-        return f"Failed to answer: {question}"
-    res = utils.execute(sql)
-    description = utils.describe(question, res)
-    print(f'Answer: {description}')
-    return description
+    try:
+        sql = utils.question2sql(utils.load_tables_schema(), question)
+        if sql is None or sql.isspace():
+            return f"Failed to answer question \"{question}\""
+        res = utils.execute(sql)
+        description = utils.describe(question, res)
+        print(f'Answer: {description}')
+        return description
+    except Exception as ex:
+        return f"Failed to answer question \"{question}\""
 
 
 @app.route('/api/load_repos', methods=['POST'])
