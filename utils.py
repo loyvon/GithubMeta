@@ -2,13 +2,11 @@ import gzip
 import json
 import os
 import tempfile
-import zlib
 
 import openai
 
 import requests
 from requests.auth import HTTPBasicAuth
-import time
 
 import mysql.connector
 
