@@ -76,7 +76,7 @@ multidict==6.0.4
 mysql-connector-python==8.2.0
 networkx==3.2.1
 numpy==1.26.2
-openai==0.28.0
+openai==0.28.1
 ordered-set==4.1.0
 packaging==23.2
 pandas==1.5.3
