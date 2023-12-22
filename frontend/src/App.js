@@ -1,6 +1,5 @@
 import React, { useState } from 'react';
 import axios from 'axios';
-import base64 from 'react-native-base64';
 
 function App() {
   const [inputValue, setInputValue] = useState('');
