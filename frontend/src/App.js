@@ -25,7 +25,7 @@ function App() {
       </div>
       {response &&
         <div style={{ maxHeight: '80vh', overflow: 'auto', width: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-          {response.image && <img src={`data:image/jpeg;base64,${response.image}`} alt="response-image" style={{ maxWidth: '80%' }}/>}
+          {response.image && <img src={`data:image/jpeg;base64,${response.image}`} alt="Response visual" style={{ maxWidth: '80%' }}/>}
           <p>{response.explanation}</p>
         </div>
       }
