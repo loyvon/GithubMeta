@@ -1,5 +1,7 @@
 import React, { useState } from 'react';
 import axios from 'axios';
+import Markdown from 'react-markdown';
+import gfm from 'remark-gfm';
 
 function App() {
   const [inputValue, setInputValue] = useState('');
@@ -18,12 +20,16 @@ function App() {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100vh' }}>
       <h1>Github Meta</h1>
-      <div style={{ display: 'flex', marginBottom: '20px' }}>
-        <input type="text" placeholder="Question..." style={{ padding: '10px', fontSize: '16px', width: '1000px', border: 'none',
-      boxShadow: '0px 3px 6px 0px rgba(0,0,0,0.16)' }} onChange={handleInputChange} />
-        <button onClick={handleClick} style={{ marginLeft: '10px', borderRadius: '12px' }}>Get Answer</button>
+      <div style={{ display: 'flex', marginBottom: '2vh' }}>
+        <input type="text" placeholder="Question..." style={{ padding: '10px', fontSize: '16px', width: '80vw', border: 'none',
+      boxShadow: '0px 0.3vh 0.6vh 0px rgba(0,0,0,0.16)' }} onChange={handleInputChange} />
+        <button onClick={handleClick} style={{ marginLeft: '1vw', borderRadius: '1.2vh' }}>Get Answer</button>
       </div>
-      {response && <p>{response}</p>}
+      {response &&
+        <div style={{ width: '50%', display: 'flex', flexDirection: 'column', alignItems: 'flex-start', overflowX: 'auto' }}>
+          <Markdown remarkPlugins={[gfm]} children={response} />
+        </div>
+      }
     </div>
   );
 }

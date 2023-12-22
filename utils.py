@@ -2,26 +2,20 @@ import gzip
 import json
 import os
 import tempfile
-import zlib
-from datetime import datetime
+
+import openai
 
 import requests
 from requests.auth import HTTPBasicAuth
-import time
 
-from openai import AzureOpenAI, OpenAI
 import mysql.connector
+
 from config import Configuration
 
-
-def get_openai_client():
-    if Configuration.OpenaiApiType == "azure":
-        client = AzureOpenAI(api_version=Configuration.OpenaiApiVersion,
-                             api_key=Configuration.OpenaiApiKey.strip(),
-                             azure_endpoint=Configuration.OpenaiAzureEndpoint.strip())
-    else:
-        client = OpenAI(api_key=Configuration.OpenaiApiKey.strip())
-    return client
+openai.api_type = Configuration.OpenaiApiType
+openai.api_base = Configuration.OpenaiAzureEndpoint.strip()
+openai.api_version = Configuration.OpenaiApiVersion
+openai.api_key = Configuration.OpenaiApiKey.strip()
 
 
 def get_db():
@@ -55,51 +49,6 @@ def init_db():
                         watchers INTEGER, default_branch TEXT, score REAL)''')
     conn.commit()
     close_db(conn)
-
-
-def load_topic(topic):
-    conn = get_db()
-    headers = {'Accept': 'application/vnd.github+json'}
-    page_id = 1
-    while True:
-        url = ("https://api.github.com/search/repositories?"
-               "q={}+in%3Atopics&sort=stars&order=desc&page={}&per_page=100"
-               .format(topic, page_id))
-        response = requests.get(url,
-                                auth=HTTPBasicAuth(Configuration.GithubUsername, Configuration.GithubToken),
-                                headers=headers)
-        if not response.ok:
-            print(response.text)
-            break
-        for data in json.loads(response.text)["items"]:
-            load_repo_into_db(conn, data)
-        print("Dumped page {} {}".format(topic, page_id))
-        page_id += 1
-        time.sleep(2)
-    conn.commit()
-    close_db(conn)
-    print(f"Finished dumping pages for {topic}")
-
-
-def load_activity(date, ofilepath):
-    """Load the github activities of the given day."""
-    url = f"https://data.gharchive.org/{date}-0.json.gz"
-    print(url)
-    remote_file = requests.get(url, stream=True)
-    if not remote_file.ok:
-        print(remote_file.text)
-        return
-    # Using zlib.MAX_WBITS|32 apparently forces zlib to detect the appropriate header for the data
-    decompressor = zlib.decompressobj(zlib.MAX_WBITS | 32)
-    # Stream this file in as a request - pull the content in just a little at a time
-    with open(ofilepath, 'wb') as output:
-        # Chunk size can be adjusted to test performance
-        for chunk in remote_file.iter_content(chunk_size=8192):
-            # Decompress the current chunk
-            decompressed_chunk = decompressor.decompress(chunk)
-            output.write(decompressed_chunk)
-
-
 
 
 def load_repo_into_db(conn, data):
@@ -159,11 +108,12 @@ def question2sql(schemas, question):
     prompt = ("MySql tables schemas:\n\n```{}```"
               "\n\nPlease generate a query to answer question: ```{}```\n\n"
               "Start the query with `<` and end the query with `>`, example: `<SELECT * FROM repos LIMIT 1>`."
+              "Requirement: At most 20 rows can be returned."
               "If you are not sure how to generate the query, just respond `<>`"
               "Query: ".format(schemas, question))
     print(prompt)
-    response = get_openai_client().chat.completions.create(
-        model=Configuration.OpenaiModel,
+    response = openai.ChatCompletion.create(
+        engine=Configuration.OpenaiModel,
         messages=[{"role": "system",
                    "content":
                        "You are a database expert that helps people generate queries for their questions "
@@ -192,26 +142,30 @@ def execute(query):
     return res
 
 
-def describe(question, rows):
+def describe(question, query, rows):
     prompt = ("Here is a question to answer: ```{}```\n"
+              "Here is the query: ```{}```\n"
               "And here is the query result that contains the answer: ```{}```.\n"
               "Please describe the rows in a way that answers the question, and use abbreviation when necessary "
               "to limit the response in 300 words."
               "Your description should focus on the question and the answer to the question."
-              "Don't mention how the result generated as the description will be presented to end users."
-              "Description should be in the format: `you asked xxx, the answer is xxxx.`"
-              "Description: ").format(question, rows)
+              "You should follow the following requirements:"
+              "1. Generate the description in markdown format."
+              "2. The first part is the query result in table format."
+              "3. The second part is a very brief explanation of the table content."
+              "4. Don't mention the query, focus on question and result."
+              "Description: ").format(question, query, rows)
     print(prompt)
-    response = get_openai_client().chat.completions.create(model=Configuration.OpenaiModel,
-                                                           messages=[{"role": "system",
-                                                                      "content": "You are an assistant that explains query results to people."},
-                                                                     {"role": "user", "content": prompt}],
-                                                           temperature=0,
-                                                           max_tokens=1000,
-                                                           top_p=1,
-                                                           frequency_penalty=0,
-                                                           presence_penalty=0,
-                                                           stop=["#", ";"])
+    response = openai.ChatCompletion.create(engine=Configuration.OpenaiModel,
+                                            messages=[{"role": "system",
+                                                       "content": "You are an assistant that answer questions for people."},
+                                                      {"role": "user", "content": prompt}],
+                                            temperature=0,
+                                            max_tokens=1000,
+                                            top_p=1,
+                                            frequency_penalty=0,
+                                            presence_penalty=0,
+                                            stop=["#", ";"])
     msg = response.choices[0].message.content
     return msg
 
@@ -237,14 +191,14 @@ def retrieve_repos(year, month, day, hour):
         for line in f:
             data = json.loads(line)
             if data['public'] and ((data['type'] == "PullRequestEvent" and data['payload']['action'] == 'closed')
-                     or (data['type'] == 'WatchEvent')):
+                                   or (data['type'] == 'WatchEvent')):
                 repo = data['repo']['name']
                 if repo not in repos:
                     repos[repo] = 0
                 repos[repo] += 1
     os.remove(filename)
     repos = [k for k, v in sorted(repos.items(), key=lambda item: -item[1])]
-    return repos[:2000] # Only first 2000 repos
+    return repos[:2000]  # Only first 2000 repos
 
 
 def load_repo(repo_name):
