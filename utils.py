@@ -151,14 +151,14 @@ def describe(question, query, rows):
               "Your description should focus on the question and the answer to the question."
               "You should follow the following requirements:"
               "1. Generate the description in markdown format."
-              "2. The first part is the query result in table format, new lines should be ."
+              "2. The first part is the query result in table format."
               "3. The second part is a very brief explanation of the table content."
               "4. Don't mention the query, focus on question and result."
               "Description: ").format(question, query, rows)
     print(prompt)
     response = openai.ChatCompletion.create(engine=Configuration.OpenaiModel,
                                             messages=[{"role": "system",
-                                                       "content": "You are an assistant that explains query results to people."},
+                                                       "content": "You are an assistant that answer questions for people."},
                                                       {"role": "user", "content": prompt}],
                                             temperature=0,
                                             max_tokens=1000,
