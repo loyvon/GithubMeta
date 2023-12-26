@@ -1,0 +1,14 @@
+{
+  "manifest_version": 2,
+  "name": "Github Repo Summary",
+  "description": "This extension summarize the key information of a GitHub repository",
+  "version": "1.0",
+  "permissions": [
+    "https://githubmeta.azurewebsites.net/",
+    "http://*/",
+    "tabs"
+  ],
+  "browser_action": {
+    "default_popup": "popup.html"
+  }
+}

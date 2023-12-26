@@ -46,7 +46,7 @@ def init_db():
                        has_downloads BOOLEAN, has_wiki BOOLEAN, has_pages BOOLEAN, has_discussions BOOLEAN, forks_count INTEGER,
                         archived BOOLEAN, disabled BOOLEAN, open_issues_count INTEGER, license TEXT, allow_forking BOOLEAN, 
                         is_template BOOLEAN, topics TEXT, visibility TEXT, forks INTEGER, open_issues INTEGER, 
-                        watchers INTEGER, default_branch TEXT, score REAL)''')
+                        watchers INTEGER, default_branch TEXT, score REAL, extra TEXT)''')
     conn.commit()
     close_db(conn)
 
@@ -61,9 +61,9 @@ def load_repo_into_db(conn, data):
         "has_downloads, has_wiki, has_pages, has_discussions, forks_count,"
         "archived, disabled, open_issues_count, license, allow_forking,"
         "is_template, topics, visibility, forks, open_issues,"
-        "watchers, default_branch, score)"
+        "watchers, default_branch, score, extra)"
         "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, "
-        "%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+        "%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
         (data['id'], data['name'], data['full_name'], data['owner']['id'], data['owner']['login'],
          data['owner']['type'], data['html_url'], data['description'], data['created_at'],
          data['updated_at'],
@@ -80,7 +80,8 @@ def load_repo_into_db(conn, data):
          ', '.join(data['topics']), data['visibility'], data['forks'], data['open_issues'],
          data['watchers'],
          data['default_branch'],
-         data['score'] if 'score' in data is not None else None))
+         data['score'] if 'score' in data is not None else None,
+         data['extra']))
 
 
 def load_tables_schema():
@@ -202,16 +203,80 @@ def retrieve_repos(year, month, day, hour):
 
 
 def load_repo(repo_name):
+    repo = get_repo(repo_name)
+    if repo is None:
+        return
+    extra = get_extra_info(repo_name)
+    repo["extra"] = json.dumps(extra)
+    conn = get_db()
+    load_repo_into_db(conn, repo)
+    conn.commit()
+    close_db(conn)
+    print(f'loaded repo: {repo_name}')
+
+
+def get_repo(repo_name):
     url = f"https://api.github.com/repos/{repo_name}"
+    return get(url)
+
+
+def get(url):
     headers = {'Accept': 'application/vnd.github+json'}
     response = requests.get(url,
                             auth=HTTPBasicAuth(Configuration.GithubUsername, Configuration.GithubToken),
                             headers=headers)
     if not response.ok:
         print(response.text)
-        return
-    conn = get_db()
-    load_repo_into_db(conn, json.loads(response.text))
-    conn.commit()
-    close_db(conn)
-    print(f'loaded repo: {repo_name}')
+        return None
+    return json.loads(response.text)
+
+
+def summarize_repo(repo_name):
+    """
+    Basic info such as stargazers, watchers, ...
+    Used language.
+    (Imported libraries: number of third-party libs.)
+    (Doc: summary of readme and wiki.)
+    Committers: top 10 contributors.
+    Recent activities: number of PRs and issues closed last week/month.
+    A quality rate.
+    """
+    query = f"SELECT * FROM repos WHERE full_name = '{repo_name}'"
+    data = execute(query)
+    res = {}
+    if data is not None:
+        repo = data[0]
+        if repo[-1] is None:
+            extra = {'top-languages': [], 'top-contributors': []}
+        else:
+            extra = json.loads(repo[-1])
+        res["Name"] = repo[1]
+        res["Full name"] = repo[2]
+        res["Owner"] = repo[4]
+        res["Url"] = repo[6]
+        res["License"] = repo[26]
+        res["Description"] = repo[7]
+        res["Created at"] = repo[8]
+        res["Most recent up at"] = repo[9]
+        res["Stars"] = repo[13]
+        res["Forks"] = repo[22]
+        res["Main languages"] = f"{','.join(extra['top-languages'])}"
+        res["Open issues count"] = repo[25]
+        res["Topics"] = repo[29]
+        res["Main contributors"] = f"{','.join(extra['top-contributors'])}"
+    return res
+
+
+def summarize_user(user_name):
+    """
+    TODO
+    """
+
+
+def get_extra_info(repo):
+    extra = {}
+    languages = get(f"https://api.github.com/repos/{repo}/languages")
+    contributors = get(f"https://api.github.com/repos/{repo}/contributors")
+    extra['top-languages'] = [k for k, v in languages.items()]
+    extra['top-contributors'] = [item['login'] for item in contributors]
+    return extra

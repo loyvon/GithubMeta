@@ -1,3 +1,4 @@
+import json
 import time
 from concurrent.futures import ThreadPoolExecutor
 from flask import Flask, send_from_directory, request, Response, jsonify
@@ -50,6 +51,16 @@ def load_repos():
 
     executor.submit(load_repos)
     return Response(), 200
+
+
+@app.route('/api/summarize')
+@limiter.limit("10/hour")  # Limit to 10 requests per hour for this route
+def summarize():
+    repo = request.args.get('repo', '')  # Get search query parameter
+    print(f"summarizing {repo}")
+    res = utils.summarize_repo(repo)
+    print(res)
+    return json.dumps(res)
 
 
 if __name__ == '__main__':
