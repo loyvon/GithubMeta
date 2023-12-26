@@ -1,5 +1,6 @@
 window.onload = function() {
-    var  repo = chrome.tabs.getSelected(null, function(tab) {
+    chrome.tabs.query({active: true, currentWindow: true}, function(tabs) {
+        var tab = tabs[0];
         var tabUrl = tab.url;
         let splitURL = tabUrl.split("/");
         let userName = splitURL[3];
@@ -9,10 +10,10 @@ window.onload = function() {
             .then(response => response.json())
             .then(data => {
                 str = ""
-                for ((key, value) in data) {
-                    str += "<bold>" + key + "</bold>: " + value + "<br>"
+                for (let key in data) {
+                    str += "<strong>" + key + "</strong>: " + data[key] + "<br>"
                 }
-                document.getElementById('response').textContent = str;
+                document.getElementById('response').innerHTML = str;
                 });
     });
 };
