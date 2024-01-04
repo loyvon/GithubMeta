@@ -129,7 +129,7 @@ def question2sql(schemas, question):
     )
     msg = response.choices[0].message.content
     print(f'Msg from model: \n{msg}\n')
-    sql = msg.strip('<').strip('>').strip('```').strip('sql')
+    sql = msg.strip('<').strip('>').strip('`')
     print(f"Generated query: {sql}")
     return sql
 
@@ -253,7 +253,6 @@ def summarize_repo(repo_name):
         res["Name"] = repo[1]
         res["Full name"] = repo[2]
         res["Owner"] = repo[4]
-        res["Url"] = repo[6]
         res["License"] = repo[26]
         res["Description"] = repo[7]
         res["Created at"] = repo[8]
