@@ -1,21 +1,72 @@
 import gzip
+import hashlib
 import json
 import os
 import tempfile
+import zipfile
 
 import openai
 
 import requests
+from langchain.text_splitter import CharacterTextSplitter
+from langchain_community.document_loaders import UnstructuredMarkdownLoader
 from requests.auth import HTTPBasicAuth
 
 import mysql.connector
 
 from config import Configuration
+from langchain.embeddings import AzureOpenAIEmbeddings
+from langchain_community.vectorstores import Chroma
+from azure.storage.blob import ContainerClient, BlobClient
+
 
 openai.api_type = Configuration.OpenaiApiType
 openai.api_base = Configuration.OpenaiAzureEndpoint.strip()
 openai.api_version = Configuration.OpenaiApiVersion
 openai.api_key = Configuration.OpenaiApiKey.strip()
+
+embedding_function = AzureOpenAIEmbeddings(azure_endpoint=Configuration.OpenaiAzureEndpoint,
+                                           azure_deployment="text-embedding-ada-002",
+                                           api_key=Configuration.OpenaiApiKey)
+
+container_client = ContainerClient.from_connection_string(conn_str=Configuration.AzureBlobConnectionString,
+                                                          container_name="vectordb")
+if not container_client.exists():
+    container_client.create_container()
+blob = BlobClient.from_connection_string(conn_str=Configuration.AzureBlobConnectionString,
+                                         container_name="vectordb",
+                                         blob_name="github")
+
+
+def init_vectordb():
+    if blob.exists():
+        vectorzip = os.path.join(tempfile.gettempdir(), "./vectordb.zip")
+        with open(vectorzip, "wb") as vectordb:
+            blob_data = blob.download_blob(timeout=600)
+            blob_data.readinto(vectordb)
+
+        archive = zipfile.ZipFile(vectorzip)
+        for file in archive.namelist():
+            archive.extract(file, os.path.join(tempfile.gettempdir(), 'vectordb'))
+
+    return Chroma(embedding_function=embedding_function,
+                  collection_name="repos",
+                  persist_directory=os.path.join(tempfile.gettempdir(), "vectordb"))
+
+
+def backup_vectordb():
+    vectorzip = os.path.join(tempfile.gettempdir(), "./vectordb.zip")
+    zf = zipfile.ZipFile(vectorzip, "w")
+    for dirname, subdirs, files in os.walk(os.path.join(tempfile.gettempdir(), 'vectordb')):
+        zf.write(dirname)
+        for filename in files:
+            zf.write(os.path.join(dirname, filename))
+    zf.close()
+    with open(vectorzip, "rb") as data:
+        blob.upload_blob(data, timeout=600)
+
+
+chroma = init_vectordb()
 
 
 def get_db():
@@ -207,6 +258,8 @@ def load_repo(repo_name):
     if repo is None:
         return
     extra = get_extra_info(repo_name)
+    readme = get_readme(repo_name, repo['default_branch'])
+    load_into_vector_db(repo_name, readme)
     repo["extra"] = json.dumps(extra)
     conn = get_db()
     load_repo_into_db(conn, repo)
@@ -217,6 +270,11 @@ def load_repo(repo_name):
 
 def get_repo(repo_name):
     url = f"https://api.github.com/repos/{repo_name}"
+    return json.loads(get(url))
+
+
+def get_readme(repo_name, default_branch):
+    url = f"https://raw.githubusercontent.com/{repo_name}/{default_branch}/README.md"
     return get(url)
 
 
@@ -228,7 +286,7 @@ def get(url):
     if not response.ok:
         print(response.text)
         return None
-    return json.loads(response.text)
+    return response.text
 
 
 def summarize_repo(repo_name):
@@ -274,8 +332,53 @@ def summarize_user(user_name):
 
 def get_extra_info(repo):
     extra = {}
-    languages = get(f"https://api.github.com/repos/{repo}/languages")
-    contributors = get(f"https://api.github.com/repos/{repo}/contributors")
+    repo_name = repo['full_name']
+    languages = json.loads(get(f"https://api.github.com/repos/{repo_name}/languages"))
+    contributors = json.loads(get(f"https://api.github.com/repos/{repo_name}/contributors"))
     extra['top-languages'] = [k for k, v in languages.items()]
     extra['top-contributors'] = [item['login'] for item in contributors]
     return extra
+
+
+def load_into_vector_db(repo_name, readme):
+    md5 = hashlib.md5(readme.encode(encoding='UTF-8', errors='strict')).hexdigest()
+    if chroma.get(where={"md5":  md5}) is not None:
+        print(f"readme of {repo_name} has no update.")
+        return
+
+    folder = os.path.join(tempfile.gettempdir(), repo_name)
+    if not os.path.exists(folder):
+        os.makedirs(folder)
+    path = os.path.join(folder, 'readme.md')
+    with open(path, 'w') as f:
+        f.write(readme)
+
+    loader = UnstructuredMarkdownLoader(path)
+    documents = loader.load()
+    text_splitter = CharacterTextSplitter(chunk_size=1000, chunk_overlap=50)
+    docs = text_splitter.split_documents(documents)
+    for _ in docs:
+        _.metadata = {"md5": md5,
+                      "repo": repo_name}
+    trial = 0
+    while trial < 5:
+        try:
+            # At most 10 chunks, to avoid too much load on the embedding server
+            chroma.add_documents(documents=docs[:10])  #(ids=[repo_name], metadatas=[{"repo": repo_name}], texts=docs)
+            break
+        except openai.error.RateLimitError as err:
+            print(err)
+        trial += 1
+    os.remove(path)
+
+
+def query_vector_db(query, filter=None, top_n=1):
+    trial = 0
+    while trial < 5:
+        try:
+            docs = chroma.similarity_search(query, filter=filter)
+            return docs[:top_n]
+        except openai.error.RateLimitError as err:
+            print(err)
+        trial += 1
+    return None
