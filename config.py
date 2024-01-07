@@ -17,3 +17,5 @@ class Configuration:
     MysqlName = os.environ["AZURE_MYSQL_NAME"]
     MysqlPasswd = os.environ["AZURE_MYSQL_PASSWORD"]
     MysqlUser = os.environ["AZURE_MYSQL_USER"]
+
+    AzureBlobConnectionString = os.environ['AZURE_STORAGEBLOB_CONNECTIONSTRING']

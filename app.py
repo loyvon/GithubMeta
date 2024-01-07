@@ -48,6 +48,7 @@ def load_repos():
         for repo in repo_list:
             utils.load_repo(repo)
             time.sleep(1)
+        utils.backup_vectordb()
 
     executor.submit(load_repos)
     return Response(), 200

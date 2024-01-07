@@ -26,8 +26,17 @@ def summarize_repo():
     print(resp.text)
 
 
+def test_vectordb():
+    repo_name = "tensorflow/tensorflow"
+    readme = utils.get_readme(repo_name, "master")
+    utils.load_into_vector_db(repo_name, readme)
+    print(utils.query_vector_db("What does tensorflow do?")[0].page_content)
+    utils.backup_vectordb()
+
+
 if __name__ == "__main__":
     # utils.init_db()
     # test_load_repo()
     # test_e2e()
-    summarize_repo()
+    # summarize_repo()
+    test_vectordb()
