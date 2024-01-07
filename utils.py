@@ -17,8 +17,7 @@ import mysql.connector
 from config import Configuration
 from langchain.embeddings import AzureOpenAIEmbeddings
 from langchain_community.vectorstores import Chroma
-from azure.storage.blob import ContainerClient, BlobClient
-
+from azure.storage.fileshare import ShareServiceClient, ShareFileClient
 
 openai.api_type = Configuration.OpenaiApiType
 openai.api_base = Configuration.OpenaiAzureEndpoint.strip()
@@ -29,25 +28,23 @@ embedding_function = AzureOpenAIEmbeddings(azure_endpoint=Configuration.OpenaiAz
                                            azure_deployment="text-embedding-ada-002",
                                            api_key=Configuration.OpenaiApiKey)
 
-container_client = ContainerClient.from_connection_string(conn_str=Configuration.AzureBlobConnectionString,
-                                                          container_name="vectordb")
-if not container_client.exists():
-    container_client.create_container()
-blob = BlobClient.from_connection_string(conn_str=Configuration.AzureBlobConnectionString,
-                                         container_name="vectordb",
-                                         blob_name="github")
+file_client = ShareFileClient.from_connection_string(conn_str=Configuration.AzureBlobConnectionString,
+                                                     share_name="githubmeta",
+                                                     file_path="vectordb.zip")
 
 
 def init_vectordb():
-    if blob.exists():
+    try:
         vectorzip = os.path.join(tempfile.gettempdir(), "./vectordb.zip")
         with open(vectorzip, "wb") as vectordb:
-            blob_data = blob.download_blob(timeout=600)
-            blob_data.readinto(vectordb)
+            data = file_client.download_file()
+            data.readinto(vectordb)
 
         archive = zipfile.ZipFile(vectorzip)
         for file in archive.namelist():
             archive.extract(file, os.path.join(tempfile.gettempdir(), 'vectordb'))
+    except Exception as err:
+        print(err)
 
     return Chroma(embedding_function=embedding_function,
                   collection_name="repos",
@@ -63,7 +60,7 @@ def backup_vectordb():
             zf.write(os.path.join(dirname, filename))
     zf.close()
     with open(vectorzip, "rb") as data:
-        blob.upload_blob(data, timeout=600)
+        file_client.upload_file(data)
 
 
 chroma = init_vectordb()
@@ -355,7 +352,7 @@ def load_into_vector_db(repo_name, readme):
 
     loader = UnstructuredMarkdownLoader(path)
     documents = loader.load()
-    text_splitter = CharacterTextSplitter(chunk_size=1000, chunk_overlap=50)
+    text_splitter = CharacterTextSplitter(chunk_size=2000, chunk_overlap=100)
     docs = text_splitter.split_documents(documents)
     for _ in docs:
         _.metadata = {"md5": md5,
