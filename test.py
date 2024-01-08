@@ -15,14 +15,14 @@ def test_e2e():
 
 def test_load_repo():
     headers = { "contentType": "application/json"}
-    payload = {"items": ["oliverklee/ext-oelib"]}
-    requests.post("http://127.0.0.1:8008/api/load_repos", headers=headers, json=payload)
+    payload = {"items": ["tensorflow/tensorflow"]}
+    requests.post("http://127.0.0.1:5000/api/load_repos", headers=headers, json=payload)
 
 
 def summarize_repo():
     headers = {"contentType": "application/json"}
-    repo = urllib.parse.quote('oliverklee/ext-oelib', safe='')
-    resp = requests.get(f"http://127.0.0.1:8008/api/summarize?repo={repo}", headers=headers)
+    repo = urllib.parse.quote('tensorflow/tensorflow', safe='')
+    resp = requests.get(f"http://127.0.0.1:5000/api/summarize?repo={repo}", headers=headers)
     print(resp.text)
 
 
@@ -38,7 +38,7 @@ def test_vectordb():
 
 if __name__ == "__main__":
     # utils.init_db()
-    # test_load_repo()
+    test_load_repo()
     # test_e2e()
     # summarize_repo()
     test_vectordb()
