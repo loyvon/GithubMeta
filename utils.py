@@ -29,13 +29,10 @@ embedding_function = AzureOpenAIEmbeddings(azure_endpoint=Configuration.OpenaiAz
                                            api_key=Configuration.OpenaiApiKey)
 
 share_service_client = ShareServiceClient.from_connection_string(Configuration.AzureBlobConnectionString)  
-share_client = share_service_client.get_share_client("githubmeta")  
-root_dir = share_client.get_directory_client("vectordbs")  
-
-
-file_client = ShareFileClient.from_connection_string(conn_str=Configuration.AzureBlobConnectionString,
-                                                     share_name="githubmeta",
-                                                     file_path="vectordb.zip")
+share_name = "githubmeta"
+dir_name = "vectordbs"
+share_client = share_service_client.get_share_client(share_name)  
+root_dir = share_client.get_directory_client(dir_name)  
 
 
 def init_vectordb():
@@ -81,6 +78,7 @@ def backup_vectordb():
             zf.write(os.path.join(dirname, filename))
     zf.close()
     with open(vectorzip, "rb") as data:
+        file_client = ShareFileClient.from_connection_string(Configuration.AzureBlobConnectionString, share_name, f"{dir_name}/{version}.zip")
         file_client.upload_file(data)
 
 
