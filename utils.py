@@ -15,7 +15,7 @@ from requests.auth import HTTPBasicAuth
 import mysql.connector
 
 from config import Configuration
-from langchain.embeddings import AzureOpenAIEmbeddings
+from langchain_community.embeddings import AzureOpenAIEmbeddings
 from langchain_community.vectorstores import Chroma
 from azure.storage.fileshare import ShareServiceClient, ShareFileClient
 
@@ -28,6 +28,11 @@ embedding_function = AzureOpenAIEmbeddings(azure_endpoint=Configuration.OpenaiAz
                                            azure_deployment="text-embedding-ada-002",
                                            api_key=Configuration.OpenaiApiKey)
 
+share_service_client = ShareServiceClient.from_connection_string(Configuration.AzureBlobConnectionString)  
+share_client = share_service_client.get_share_client("githubmeta")  
+root_dir = share_client.get_directory_client("vectordbs")  
+
+
 file_client = ShareFileClient.from_connection_string(conn_str=Configuration.AzureBlobConnectionString,
                                                      share_name="githubmeta",
                                                      file_path="vectordb.zip")
@@ -37,12 +42,27 @@ def init_vectordb():
     try:
         vectorzip = os.path.join(tempfile.gettempdir(), "./vectordb.zip")
         with open(vectorzip, "wb") as vectordb:
-            data = file_client.download_file()
-            data.readinto(vectordb)
+            dirs = root_dir.list_directories_and_files()
+            latest_file = None
+            latest_time = None
+            for file_item in dirs:
+                if file_item.is_directory:
+                    continue
 
-        archive = zipfile.ZipFile(vectorzip)
-        for file in archive.namelist():
-            archive.extract(file, os.path.join(tempfile.gettempdir(), 'vectordb'))
+                file_client = share_client.get_file_client(file_item.name)
+                props = file_client.get_file_properties()
+                last_modified = props['last_modified']
+
+                if latest_file is None or last_modified > latest_time:
+                    latest_file = file_item.name
+                    latest_time = last_modified
+
+            if latest_file is not None:
+                data = share_client.get_file_client(latest_file).download_file()
+                data.readinto(vectordb)
+                archive = zipfile.ZipFile(vectorzip)
+                for file in archive.namelist():
+                    archive.extract(file, os.path.join(tempfile.gettempdir(), 'vectordb'))
     except Exception as err:
         print(err)
 
@@ -52,7 +72,8 @@ def init_vectordb():
 
 
 def backup_vectordb():
-    vectorzip = os.path.join(tempfile.gettempdir(), "./vectordb.zip")
+    version = now.strftime("%y%m%d-%H%M%S")
+    vectorzip = os.path.join(tempfile.gettempdir(), f"./vectordb-{version}.zip")
     zf = zipfile.ZipFile(vectorzip, "w")
     for dirname, subdirs, files in os.walk(os.path.join(tempfile.gettempdir(), 'vectordb')):
         zf.write(dirname)
@@ -113,7 +134,7 @@ def load_repo_into_db(conn, data):
         "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, "
         "%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
         (data['id'], data['name'], data['full_name'], data['owner']['id'], data['owner']['login'],
-         data['owner']['type'], data['html_url'], data['description'], data['created_at'],
+         data['owner']['type'], data['html_url'], ' '.join(data['description'].split()[:50]), data['created_at'],
          data['updated_at'],
          data['pushed_at'], data['clone_url'], data['size'], data['stargazers_count'],
          data['watchers_count'],
@@ -157,7 +178,9 @@ def question2sql(schemas, question):
     prompt = ("MySql tables schemas:\n\n```{}```"
               "\n\nPlease generate a query to answer question: ```{}```\n\n"
               "Start the query with `<` and end the query with `>`, example: `<SELECT * FROM repos LIMIT 1>`."
-              "Requirement: At most 20 rows can be returned."
+              "And please only get the relevant columns from the tables, usually 5 columns is preferred."
+              "And please always shorten the description (column `description`) in the result to within 50 words."
+              "And please always order by stargazers_count DESC and limit 10"
               "If you are not sure how to generate the query, just respond `<>`"
               "Query: ".format(schemas, question))
     print(prompt)
@@ -191,19 +214,20 @@ def execute(query):
     return res
 
 
-def describe(question, query, rows):
+def describe(question, query, rows, references):
     prompt = ("Here is a question to answer: ```{}```\n"
               "Here is the query: ```{}```\n"
               "And here is the query result that contains the answer: ```{}```.\n"
+              "And here are the references, each belong to a specific repo: ```{}```.\n"
               "Please describe the rows in a way that answers the question, and use abbreviation when necessary "
-              "to limit the response in 300 words."
+              "to limit the response in 1000 words."
               "Your description should focus on the question and the answer to the question."
               "You should follow the following requirements:"
               "1. Generate the description in markdown format."
               "2. The first part is the query result in table format."
-              "3. The second part is a very brief explanation of the table content."
+              "3. The second part is a brief explanation of the table content."
               "4. Don't mention the query, focus on question and result."
-              "Description: ").format(question, query, rows)
+              "Description: ").format(question, query, rows, references)
     print(prompt)
     response = openai.ChatCompletion.create(engine=Configuration.OpenaiModel,
                                             messages=[{"role": "system",
@@ -352,7 +376,7 @@ def load_into_vector_db(repo_name, readme):
 
     loader = UnstructuredMarkdownLoader(path)
     documents = loader.load()
-    text_splitter = CharacterTextSplitter(chunk_size=2000, chunk_overlap=100)
+    text_splitter = CharacterTextSplitter(chunk_size=1000, chunk_overlap=50)
     docs = text_splitter.split_documents(documents)
     for _ in docs:
         _.metadata = {"md5": md5,
@@ -361,7 +385,7 @@ def load_into_vector_db(repo_name, readme):
     while trial < 5:
         try:
             # At most 10 chunks, to avoid too much load on the embedding server
-            chroma.add_documents(documents=docs[:10])  #(ids=[repo_name], metadatas=[{"repo": repo_name}], texts=docs)
+            chroma.add_documents(documents=docs[:5])  #(ids=[repo_name], metadatas=[{"repo": repo_name}], texts=docs)
             break
         except openai.error.RateLimitError as err:
             print(err)

@@ -27,14 +27,28 @@ def search():
     print(f'Question received: {question}')
     description = f"Failed to answer question \"{question}\""
     try:
+        docs = utils.query_vector_db(question, top_n=10)
+        refs = {}
+        for doc in docs:
+            repo = doc.metadata['repo']
+            if repo not in refs:
+                refs[repo] = ""
+            refs[repo] += doc.page_content
+
+        refs = '\n\n\n'.join([f"repository {k}: {v}" for k, v in refs.items()])
+
         sql = utils.question2sql(utils.load_tables_schema(), question)
-        if sql is None or sql.isspace():
+        db_res = None
+        if not (sql is None or sql.isspace()):
+            db_res = utils.execute(sql)
+
+        if db_res is None and refs is None:
             return f"Failed to answer question \"{question}\""
-        res = utils.execute(sql)
-        description = utils.describe(question, sql, res)
+
+        description = utils.describe(question, sql, db_res, refs)
         print(f'Answer:\n{description}')
     except Exception as ex:
-        print(f"Failed to answer question \"{question}\": {ex}")
+        print(f"Failed to answer question \"{question}\", exception: {ex}")
 
     return description
 

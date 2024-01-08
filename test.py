@@ -30,7 +30,9 @@ def test_vectordb():
     repo_name = "tensorflow/tensorflow"
     readme = utils.get_readme(repo_name, "master")
     utils.load_into_vector_db(repo_name, readme)
-    print(utils.query_vector_db("What does tensorflow do?")[0].page_content)
+    ref = utils.query_vector_db("What does tensorflow do?")[0]
+    print(ref.page_content)
+    print(ref.metadata)
     utils.backup_vectordb()
 
 
