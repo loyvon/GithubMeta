@@ -69,6 +69,7 @@ jobs:
       - name: Install SQLite
         run: |
           sudo apt-get update  
+          sudo apt-get remove sqlite3
           sudo apt-get install -y wget tar libreadline-dev  
           wget https://www.sqlite.org/2021/sqlite-autoconf-3350000.tar.gz  
           tar xvfz sqlite-autoconf-3350000.tar.gz  
@@ -76,6 +77,7 @@ jobs:
           ./configure  
           make  
           sudo make install
+          sqlite3 --version
 
       - name: Download artifact from build job
         uses: actions/download-artifact@v3
