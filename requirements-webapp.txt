@@ -1,0 +1,9 @@
+flask~=3.0.0
+Flask-Limiter==3.5.0
+mysql.connector.python==8.2.0
+openai==0.28.1
+requests==2.31.0
+chromadb==0.4.13
+tiktoken==0.5.2
+langchain==0.1.0
+azure-storage-file-share==12.15.0
