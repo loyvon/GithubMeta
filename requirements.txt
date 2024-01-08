@@ -8,3 +8,4 @@ chromadb
 tiktoken
 langchain
 azure-storage-file-share==12.15.0
+sqlite3==3.35.0
