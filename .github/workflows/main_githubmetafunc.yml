@@ -32,18 +32,21 @@ jobs:
         run: |
           cd func
           pip install -r requirements.txt
+          cd ..
 
       # Optional: Add step to run tests here
 
       - name: Zip artifact for deployment
-        run: zip release.zip ./* -x frontend/* -r
+        run: | 
+          cd func
+          zip release.zip ./* -x frontend/* -r
 
       - name: Upload artifact for deployment job
         uses: actions/upload-artifact@v3
         with:
           name: python-app
           path: |
-            release.zip
+            func/release.zip
             !venv/
 
   deploy:
