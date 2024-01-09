@@ -2,7 +2,7 @@ import azure.functions as func
 import datetime
 import logging
 import requests
-import utils
+import func_utils
 
 app = func.FunctionApp()
 
@@ -12,9 +12,9 @@ def LoadRepos(myTimer: func.TimerRequest) -> None:
     if myTimer.past_due:
         logging.info('The timer is past due!')
     date = datetime.datetime.now() - datetime.timedelta(hours=2)
-    repos = utils.retrieve_repos(date.year, date.month, date.day, date.hour)
+    repos = func_utils.retrieve_repos(date.year, date.month, date.day, date.hour)
     headers = {"contentType": "application/json"}
     payload = {"items": repos}
     response = requests.post("https://githubmeta.azurewebsites.net/api/load_repos", headers=headers, json=payload)
-    logging.info(response.text)
+    logging.info(response.status_code)
     logging.info('Python timer trigger function executed.')

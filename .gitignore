@@ -167,3 +167,5 @@ config.yaml
 
 appsettings.json
 local.settings.json
+
+.vscode

@@ -1,21 +1,86 @@
-import gzip
+import hashlib
 import json
 import os
 import tempfile
-
 import openai
-
 import requests
 from requests.auth import HTTPBasicAuth
-
 import mysql.connector
-
 from config import Configuration
+from langchain_community.embeddings import AzureOpenAIEmbeddings
+from langchain_community.vectorstores import DeepLake
+from langchain.text_splitter import CharacterTextSplitter
+from langchain_community.document_loaders import UnstructuredMarkdownLoader
 
 openai.api_type = Configuration.OpenaiApiType
 openai.api_base = Configuration.OpenaiAzureEndpoint.strip()
 openai.api_version = Configuration.OpenaiApiVersion
 openai.api_key = Configuration.OpenaiApiKey.strip()
+
+embedding_function = AzureOpenAIEmbeddings(azure_endpoint=Configuration.OpenaiAzureEndpoint,
+                                           azure_deployment="text-embedding-ada-002",
+                                           api_key=Configuration.OpenaiApiKey)
+
+
+def init_vectordb():
+    return DeepLake(embedding_function=embedding_function,
+                    dataset_path="az://githubvectordb/vectordb/github")
+
+
+vectordb = init_vectordb()
+
+
+def backup_vectordb():
+    vectordb.ds.flush()
+
+
+def load_into_vector_db(repo, readme):
+    repo_name = repo['full_name']
+    readme_md5 = hashlib.md5(readme.encode(encoding='UTF-8', errors='strict')).hexdigest()
+    repo['readme_md5'] = readme_md5
+    loaded_repo = vectordb.ds().filter(lambda sample: sample.meta['readme_md5'] == readme_md5)
+    if loaded_repo.num_samples > 0:
+        # Only update metadata
+        loaded_repo[0].update(repo)
+        print(f"readme of {repo_name} has no update.")
+        return
+
+    folder = os.path.join(tempfile.gettempdir(), repo_name)
+    if not os.path.exists(folder):
+        os.makedirs(folder)
+    path = os.path.join(folder, 'readme.md')
+    with open(path, 'w') as f:
+        f.write(readme)
+
+    loader = UnstructuredMarkdownLoader(path)
+    documents = loader.load()
+    text_splitter = CharacterTextSplitter(chunk_size=1000, chunk_overlap=50)
+    docs = text_splitter.split_documents(documents)
+    for _ in docs:
+        _.metadata = repo
+
+    trial = 0
+    while trial < 5:
+        try:
+            # At most 5 chunks, to avoid too much load on the embedding server
+            vectordb.add_documents(documents=docs[:5])  # (ids=[repo_name], metadatas=[{"repo": repo_name}], texts=docs)
+            break
+        except openai.error.RateLimitError as err:
+            print(err)
+        trial += 1
+    os.remove(path)
+
+
+def query_vector_db(query, filter=None, top_n=1):
+    trial = 0
+    while trial < 5:
+        try:
+            docs = vectordb.similarity_search(query, filter=filter)
+            return docs[:top_n]
+        except openai.error.RateLimitError as err:
+            print(err)
+        trial += 1
+    return None
 
 
 def get_db():
@@ -65,7 +130,7 @@ def load_repo_into_db(conn, data):
         "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, "
         "%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
         (data['id'], data['name'], data['full_name'], data['owner']['id'], data['owner']['login'],
-         data['owner']['type'], data['html_url'], data['description'], data['created_at'],
+         data['owner']['type'], data['html_url'], ' '.join(data['description'].split()[:50]), data['created_at'],
          data['updated_at'],
          data['pushed_at'], data['clone_url'], data['size'], data['stargazers_count'],
          data['watchers_count'],
@@ -109,7 +174,9 @@ def question2sql(schemas, question):
     prompt = ("MySql tables schemas:\n\n```{}```"
               "\n\nPlease generate a query to answer question: ```{}```\n\n"
               "Start the query with `<` and end the query with `>`, example: `<SELECT * FROM repos LIMIT 1>`."
-              "Requirement: At most 20 rows can be returned."
+              "And please only get the relevant columns from the tables, usually 5 columns is preferred."
+              "And please always shorten the description (column `description`) in the result to within 50 words."
+              "And please always order by stargazers_count DESC and limit 10"
               "If you are not sure how to generate the query, just respond `<>`"
               "Query: ".format(schemas, question))
     print(prompt)
@@ -143,19 +210,20 @@ def execute(query):
     return res
 
 
-def describe(question, query, rows):
+def describe(question, query, rows, references):
     prompt = ("Here is a question to answer: ```{}```\n"
               "Here is the query: ```{}```\n"
               "And here is the query result that contains the answer: ```{}```.\n"
-              "Please describe the rows in a way that answers the question, and use abbreviation when necessary "
-              "to limit the response in 300 words."
+              "And here are the references, each belong to a specific repo: ```{}```.\n"
+              "Please answer the question with the above information, and use abbreviation when necessary "
+              "to limit the response in 1000 words."
               "Your description should focus on the question and the answer to the question."
               "You should follow the following requirements:"
               "1. Generate the description in markdown format."
-              "2. The first part is the query result in table format."
-              "3. The second part is a very brief explanation of the table content."
+              "2. The first part is the query result in table format if query result is not empty."
+              "3. The second part is a brief explanation of the table content."
               "4. Don't mention the query, focus on question and result."
-              "Description: ").format(question, query, rows)
+              "Description: ").format(question, query, rows, references)
     print(prompt)
     response = openai.ChatCompletion.create(engine=Configuration.OpenaiModel,
                                             messages=[{"role": "system",
@@ -171,42 +239,13 @@ def describe(question, query, rows):
     return msg
 
 
-def download_file(url, filename):
-    with requests.get(url, stream=True) as r:
-        r.raise_for_status()
-        with open(filename, 'wb') as f:
-            for chunk in r.iter_content(chunk_size=8192):
-                f.write(chunk)
-
-
-def retrieve_repos(year, month, day, hour):
-    """
-    Retrieve repos active last week.
-    """
-    repos = {}
-    url = f"https://data.gharchive.org/{year}-{month:02d}-{day:02d}-{hour}.json.gz"
-    filename = os.path.join(tempfile.gettempdir(), os.path.basename(url))
-    print(f"Downloading {url}...")
-    download_file(url, filename)
-    with gzip.open(filename, 'rt') as f:
-        for line in f:
-            data = json.loads(line)
-            if data['public'] and ((data['type'] == "PullRequestEvent" and data['payload']['action'] == 'closed')
-                                   or (data['type'] == 'WatchEvent')):
-                repo = data['repo']['name']
-                if repo not in repos:
-                    repos[repo] = 0
-                repos[repo] += 1
-    os.remove(filename)
-    repos = [k for k, v in sorted(repos.items(), key=lambda item: -item[1])]
-    return repos[:2000]  # Only first 2000 repos
-
-
 def load_repo(repo_name):
     repo = get_repo(repo_name)
     if repo is None:
         return
     extra = get_extra_info(repo_name)
+    readme = get_readme(repo_name, repo['default_branch'])
+    load_into_vector_db(repo_name, readme)
     repo["extra"] = json.dumps(extra)
     conn = get_db()
     load_repo_into_db(conn, repo)
@@ -217,6 +256,11 @@ def load_repo(repo_name):
 
 def get_repo(repo_name):
     url = f"https://api.github.com/repos/{repo_name}"
+    return json.loads(get(url))
+
+
+def get_readme(repo_name, default_branch):
+    url = f"https://raw.githubusercontent.com/{repo_name}/{default_branch}/README.md"
     return get(url)
 
 
@@ -228,7 +272,7 @@ def get(url):
     if not response.ok:
         print(response.text)
         return None
-    return json.loads(response.text)
+    return response.text
 
 
 def summarize_repo(repo_name):
@@ -274,8 +318,9 @@ def summarize_user(user_name):
 
 def get_extra_info(repo):
     extra = {}
-    languages = get(f"https://api.github.com/repos/{repo}/languages")
-    contributors = get(f"https://api.github.com/repos/{repo}/contributors")
+    repo_name = repo['full_name']
+    languages = json.loads(get(f"https://api.github.com/repos/{repo_name}/languages"))
+    contributors = json.loads(get(f"https://api.github.com/repos/{repo_name}/contributors"))
     extra['top-languages'] = [k for k, v in languages.items()]
     extra['top-contributors'] = [item['login'] for item in contributors]
     return extra
