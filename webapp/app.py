@@ -30,7 +30,7 @@ def search():
         docs = utils.query_vector_db(question, top_n=10)
         refs = {}
         for doc in docs:
-            repo = doc.metadata['repo']
+            repo = doc.metadata['full_name']
             if repo not in refs:
                 refs[repo] = ""
             refs[repo] += doc.page_content

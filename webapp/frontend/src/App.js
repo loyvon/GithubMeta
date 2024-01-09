@@ -8,7 +8,7 @@ function App() {
   const [response, setResponse] = useState('');
 
   const handleInputChange = (e) => {
-    setInputValue("Repositories that" + e.target.value);
+    setInputValue("Repositories that " + e.target.value);
   };
 
   const handleClick = async () => {
