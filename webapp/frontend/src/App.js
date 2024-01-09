@@ -26,7 +26,7 @@ function App() {
         <button onClick={handleClick} style={{ marginLeft: '1vw', borderRadius: '1.2vh' }}>Get Answer</button>
       </div>
       {response &&
-        <div style={{ width: '50%', display: 'flex', flexDirection: 'column', alignItems: 'flex-start', overflowX: 'auto' }}>
+        <div style={{ width: '80%', display: 'flex', flexDirection: 'column', alignItems: 'flex-start', overflowX: 'auto' }}>
           <Markdown remarkPlugins={[gfm]} children={response} />
         </div>
       }

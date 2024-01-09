@@ -16,18 +16,17 @@ openai.api_type = Configuration.OpenaiApiType
 openai.api_base = Configuration.OpenaiAzureEndpoint.strip()
 openai.api_version = Configuration.OpenaiApiVersion
 openai.api_key = Configuration.OpenaiApiKey.strip()
-
-embedding_function = AzureOpenAIEmbeddings(azure_endpoint=Configuration.OpenaiAzureEndpoint,
-                                           azure_deployment="text-embedding-ada-002",
-                                           api_key=Configuration.OpenaiApiKey)
+vectordb: DeepLake = None
 
 
 def init_vectordb():
-    return DeepLake(embedding_function=embedding_function,
+    global vectordb
+    embedding_function = AzureOpenAIEmbeddings(azure_endpoint=Configuration.OpenaiAzureEndpoint,
+                                           azure_deployment="text-embedding-ada-002",
+                                           api_key=Configuration.OpenaiApiKey)
+
+    vectordb = DeepLake(embedding_function=embedding_function,
                     dataset_path="az://githubvectordb/vectordb/github")
-
-
-vectordb = init_vectordb()
 
 
 def backup_vectordb():
@@ -112,6 +111,11 @@ def init_db():
                         archived BOOLEAN, disabled BOOLEAN, open_issues_count INTEGER, license TEXT, allow_forking BOOLEAN, 
                         is_template BOOLEAN, topics TEXT, visibility TEXT, forks INTEGER, open_issues INTEGER, 
                         watchers INTEGER, default_branch TEXT, score REAL, extra TEXT)''')
+    cursor.execute('''CREATE TABLE IF NOT EXISTS repos_readme_embeddings_vectors  
+                         (repo_id INTEGER, vector_idx INTEGER, vector_val REAL)''')
+    cursor.execute('''create clustered columnstore index ixc 
+                    on repos_readme_embeddings_vectors 
+                    order (repo_id)''')
     conn.commit()
     close_db(conn)
 
@@ -242,10 +246,11 @@ def describe(question, query, rows, references):
 def load_repo(repo_name):
     repo = get_repo(repo_name)
     if repo is None:
+        print(f"Didn't get repo {repo_name}")
         return
     extra = get_extra_info(repo_name)
     readme = get_readme(repo_name, repo['default_branch'])
-    load_into_vector_db(repo_name, readme)
+    load_into_vector_db(repo, readme)
     repo["extra"] = json.dumps(extra)
     conn = get_db()
     load_repo_into_db(conn, repo)
@@ -316,9 +321,8 @@ def summarize_user(user_name):
     """
 
 
-def get_extra_info(repo):
+def get_extra_info(repo_name):
     extra = {}
-    repo_name = repo['full_name']
     languages = json.loads(get(f"https://api.github.com/repos/{repo_name}/languages"))
     contributors = json.loads(get(f"https://api.github.com/repos/{repo_name}/contributors"))
     extra['top-languages'] = [k for k, v in languages.items()]
