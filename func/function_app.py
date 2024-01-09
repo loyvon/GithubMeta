@@ -16,5 +16,5 @@ def LoadRepos(myTimer: func.TimerRequest) -> None:
     headers = {"contentType": "application/json"}
     payload = {"items": repos}
     response = requests.post("https://githubmeta.azurewebsites.net/api/load_repos", headers=headers, json=payload)
-    logging.info(response.text)
+    logging.info(response.status_code)
     logging.info('Python timer trigger function executed.')
