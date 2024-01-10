@@ -35,13 +35,21 @@ def search():
         for doc in docs:
             repo = doc.metadata['full_name']
             if repo not in metadatas:
-                metadatas[repo] = doc.metadata
+                necessary_metadata_list = ["full_name", "owner_login", "description", "topics",
+                                           "created_at", "updated_at", "license", "extra"]
+                meta = {}
+                for k, v in doc.metadata.items():
+                    if k in necessary_metadata_list:
+                        meta[k] = v
+                metadatas[repo] = meta
             if repo not in refs:
                 refs[repo] = ""
             refs[repo] += doc.page_content
 
         refs = '\n\n\n'.join([f"repository {k}: {v}" for k, v in refs.items()])
         if metadatas is not None:
+            # Only select necessary metadata
+
             metadatas = json.dumps(metadatas, separators=(',', ':'))
             refs += f"\n\n\nmetadatas for each repository: {metadatas}"
 
