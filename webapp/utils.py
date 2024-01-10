@@ -69,7 +69,7 @@ def query_vector_db(query, filter=None, top_n=1):
     while trial < 5:
         try:
             docs = vectordb.similarity_search_with_score(query, filter=filter)
-            return [_ for _ in docs[:top_n] if _[1] > 0.8]
+            return [_ for _ in docs[:top_n] if _[1] > 0.4]
         except openai.error.RateLimitError as err:
             print(traceback.format_exc())
             print(err)
@@ -88,6 +88,7 @@ def get_db():
                                    ssl_ca='./DigiCertGlobalRootCA.crt.pem',
                                    ssl_disabled=False,
                                    port=3306)
+    return conn
     return conn
 
 
