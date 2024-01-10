@@ -89,7 +89,6 @@ def get_db():
                                    ssl_disabled=False,
                                    port=3306)
     return conn
-    return conn
 
 
 def close_db(conn):
