@@ -125,7 +125,9 @@ def load_repo_into_db(conn, data):
         "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, "
         "%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
         (data['id'], data['name'], data['full_name'], data['owner']['id'], data['owner']['login'],
-         data['owner']['type'], data['html_url'], ' '.join(data['description'].split()[:50]), data['created_at'],
+         data['owner']['type'], data['html_url'],
+         ' '.join(data['description'].split()[:50]) if data['description'] is not None else None,
+         data['created_at'],
          data['updated_at'],
          data['pushed_at'], data['clone_url'], data['size'], data['stargazers_count'],
          data['watchers_count'],
@@ -242,11 +244,15 @@ def load_repo(repo_name):
         return
     extra = get_extra_info(repo_name)
     readme = get_readme(repo_name, repo['default_branch'])
-    readme_md5 = hashlib.md5(readme.encode(encoding='UTF-8', errors='strict')).hexdigest()
-    repo['readme_md5'] = readme_md5
-    rows = execute(f"SELECT COUNT(*) FROM repos WHERE `full_name` = '{repo_name}' AND `readme_md5` = '{readme_md5}'")
-    if rows[0][0] == 0:
-        load_into_vector_db(repo, readme)
+    if readme is not None:
+        readme_md5 = hashlib.md5(readme.encode(encoding='UTF-8', errors='strict')).hexdigest()
+        repo['readme_md5'] = readme_md5
+        rows = execute(f"SELECT COUNT(*) FROM repos WHERE `full_name` = '{repo_name}' AND `readme_md5` = '{readme_md5}'")
+        if rows[0][0] == 0:
+            load_into_vector_db(repo, readme)
+    else:
+        repo['readme_md5'] = None
+
     repo["extra"] = json.dumps(extra)
     conn = get_db()
     load_repo_into_db(conn, repo)

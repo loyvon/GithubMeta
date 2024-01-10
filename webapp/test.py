@@ -45,5 +45,5 @@ if __name__ == "__main__":
     # summarize_repo()
     # test_vectordb()
     utils.init_vectordb()
-    print(utils.vectordb.delete(delete_all=True))
-    utils.backup_vectordb()
+    #print(utils.vectordb.delete(delete_all=True))
+    utils.vectordb.ds().summary()
