@@ -30,13 +30,19 @@ def search():
     try:
         docs = utils.query_vector_db(question, top_n=10)
         refs = {}
+        metadatas = {}
         for doc in docs:
             repo = doc.metadata['full_name']
+            if repo not in metadatas:
+                metadatas[repo] = doc.metadata
             if repo not in refs:
                 refs[repo] = ""
             refs[repo] += doc.page_content
 
         refs = '\n\n\n'.join([f"repository {k}: {v}" for k, v in refs.items()])
+        if metadatas is not None:
+            metadatas = json.dumps(metadatas, separators=(',', ':'))
+            refs += f"\n\n\nmetadatas for each repository: {metadatas}"
 
         sql = utils.question2sql(utils.load_tables_schema(), question)
         db_res = None

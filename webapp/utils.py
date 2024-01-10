@@ -30,20 +30,11 @@ def init_vectordb():
 
 
 def backup_vectordb():
-    vectordb.ds.flush()
+    vectordb.ds().flush()
 
 
 def load_into_vector_db(repo, readme):
     repo_name = repo['full_name']
-    readme_md5 = hashlib.md5(readme.encode(encoding='UTF-8', errors='strict')).hexdigest()
-    repo['readme_md5'] = readme_md5
-    loaded_repo = vectordb.ds().filter(lambda sample: sample.meta['readme_md5'] == readme_md5)
-    if loaded_repo.num_samples > 0:
-        # Only update metadata
-        loaded_repo[0].update(repo)
-        print(f"readme of {repo_name} has no update.")
-        return
-
     folder = os.path.join(tempfile.gettempdir(), repo_name)
     if not os.path.exists(folder):
         os.makedirs(folder)
@@ -74,8 +65,8 @@ def query_vector_db(query, filter=None, top_n=1):
     trial = 0
     while trial < 5:
         try:
-            docs = vectordb.similarity_search(query, filter=filter)
-            return docs[:top_n]
+            docs = vectordb.similarity_search_with_score(query, filter=filter)
+            return [_ for _ in docs[:top_n] if _[1] > 0.8]
         except openai.error.RateLimitError as err:
             print(err)
         trial += 1
@@ -110,7 +101,7 @@ def init_db():
                        has_downloads BOOLEAN, has_wiki BOOLEAN, has_pages BOOLEAN, has_discussions BOOLEAN, forks_count INTEGER,
                         archived BOOLEAN, disabled BOOLEAN, open_issues_count INTEGER, license TEXT, allow_forking BOOLEAN, 
                         is_template BOOLEAN, topics TEXT, visibility TEXT, forks INTEGER, open_issues INTEGER, 
-                        watchers INTEGER, default_branch TEXT, score REAL, extra TEXT)''')
+                        watchers INTEGER, default_branch TEXT, score REAL, readme_md5 TEXT, extra TEXT)''')
     cursor.execute('''CREATE TABLE IF NOT EXISTS repos_readme_embeddings_vectors  
                          (repo_id INTEGER, vector_idx INTEGER, vector_val REAL)''')
     cursor.execute('''create clustered columnstore index ixc 
@@ -130,9 +121,9 @@ def load_repo_into_db(conn, data):
         "has_downloads, has_wiki, has_pages, has_discussions, forks_count,"
         "archived, disabled, open_issues_count, license, allow_forking,"
         "is_template, topics, visibility, forks, open_issues,"
-        "watchers, default_branch, score, extra)"
+        "watchers, default_branch, score, readme_md5, extra)"
         "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, "
-        "%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+        "%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
         (data['id'], data['name'], data['full_name'], data['owner']['id'], data['owner']['login'],
          data['owner']['type'], data['html_url'], ' '.join(data['description'].split()[:50]), data['created_at'],
          data['updated_at'],
@@ -150,6 +141,7 @@ def load_repo_into_db(conn, data):
          data['watchers'],
          data['default_branch'],
          data['score'] if 'score' in data is not None else None,
+         data['readme_md5'],
          data['extra']))
 
 
@@ -250,7 +242,11 @@ def load_repo(repo_name):
         return
     extra = get_extra_info(repo_name)
     readme = get_readme(repo_name, repo['default_branch'])
-    load_into_vector_db(repo, readme)
+    readme_md5 = hashlib.md5(readme.encode(encoding='UTF-8', errors='strict')).hexdigest()
+    repo['readme_md5'] = readme_md5
+    rows = execute(f"SELECT COUNT(*) FROM repos WHERE `full_name` = '{repo_name}' AND `readme_md5` = '{readme_md5}'")
+    if rows[0][0] == 0:
+        load_into_vector_db(repo, readme)
     repo["extra"] = json.dumps(extra)
     conn = get_db()
     load_repo_into_db(conn, repo)
