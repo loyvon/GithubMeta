@@ -106,73 +106,72 @@ def init_db():
                         archived BOOLEAN, disabled BOOLEAN, open_issues_count INTEGER, license TEXT, allow_forking BOOLEAN, 
                         is_template BOOLEAN, topics TEXT, visibility TEXT, forks INTEGER, open_issues INTEGER, 
                         watchers INTEGER, default_branch TEXT, score REAL, readme_md5 TEXT, extra TEXT)''')
-    cursor.execute('''CREATE TABLE IF NOT EXISTS repos_readme_embeddings_vectors  
-                         (repo_id INTEGER, vector_idx INTEGER, vector_val REAL)''')
-    cursor.execute('''create clustered columnstore index ixc 
-                    on repos_readme_embeddings_vectors 
-                    order (repo_id)''')
     conn.commit()
     close_db(conn)
 
 
 def load_repo_into_db(data):
     conn = get_db()
-    cursor = conn.cursor()
-    cursor.execute(
-        "REPLACE INTO repos "
-        "(id, name, full_name, owner_id, owner_login, owner_type, html_url, "
-        "description, created_at, updated_at, pushed_at, clone_url, size, "
-        "stargazers_count, watchers_count, language, has_issues, has_projects,"
-        "has_downloads, has_wiki, has_pages, has_discussions, forks_count,"
-        "archived, disabled, open_issues_count, license, allow_forking,"
-        "is_template, topics, visibility, forks, open_issues,"
-        "watchers, default_branch, score, readme_md5, extra)"
-        "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, "
-        "%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
-        (data['id'], data['name'], data['full_name'], data['owner']['id'], data['owner']['login'],
-         data['owner']['type'], data['html_url'],
-         ' '.join(data['description'].split()[:50]) if data['description'] is not None else None,
-         data['created_at'],
-         data['updated_at'],
-         data['pushed_at'], data['clone_url'], data['size'], data['stargazers_count'],
-         data['watchers_count'],
-         data['language'], data['has_issues'], data['has_projects'], data['has_downloads'],
-         data['has_wiki'],
-         data['has_pages'], data['has_discussions'], data['forks_count'], data['archived'],
-         data['disabled'],
-         data['open_issues_count'],
-         data['license']['key'] if data['license'] is not None else None,
-         data['allow_forking'],
-         data['is_template'],
-         ', '.join(data['topics']), data['visibility'], data['forks'], data['open_issues'],
-         data['watchers'],
-         data['default_branch'],
-         data['score'] if 'score' in data is not None else None,
-         data['readme_md5'],
-         data['extra']))
-    conn.commit()
-    close_db(conn)
+    try:
+        cursor = conn.cursor()
+        cursor.execute(
+            "REPLACE INTO repos "
+            "(id, name, full_name, owner_id, owner_login, owner_type, html_url, "
+            "description, created_at, updated_at, pushed_at, clone_url, size, "
+            "stargazers_count, watchers_count, language, has_issues, has_projects,"
+            "has_downloads, has_wiki, has_pages, has_discussions, forks_count,"
+            "archived, disabled, open_issues_count, license, allow_forking,"
+            "is_template, topics, visibility, forks, open_issues,"
+            "watchers, default_branch, score, readme_md5, extra)"
+            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, "
+            "%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+            (data['id'], data['name'], data['full_name'], data['owner']['id'], data['owner']['login'],
+             data['owner']['type'], data['html_url'],
+             ' '.join(data['description'].split()[:50]) if data['description'] is not None else None,
+             data['created_at'],
+             data['updated_at'],
+             data['pushed_at'], data['clone_url'], data['size'], data['stargazers_count'],
+             data['watchers_count'],
+             data['language'], data['has_issues'], data['has_projects'], data['has_downloads'],
+             data['has_wiki'],
+             data['has_pages'], data['has_discussions'], data['forks_count'], data['archived'],
+             data['disabled'],
+             data['open_issues_count'],
+             data['license']['key'] if data['license'] is not None else None,
+             data['allow_forking'],
+             data['is_template'],
+             ', '.join(data['topics']), data['visibility'], data['forks'], data['open_issues'],
+             data['watchers'],
+             data['default_branch'],
+             data['score'] if 'score' in data is not None else None,
+             data['readme_md5'],
+             data['extra']))
+        conn.commit()
+    finally:
+        close_db(conn)
 
 
 def load_tables_schema():
     """Load the table schema as return the schema in text format."""
     conn = get_db()
-    c = conn.cursor()
-    c.execute("SELECT table_name, column_name"
-              " FROM information_schema.columns"
-              f" WHERE table_schema = 'github';")
-    tables = c.fetchall()
-    table_schemas = {}
-    for row in tables:
-        table_name = row[0]
-        col_name = row[1]
-        if table_name not in table_schemas.keys():
-            table_schemas[table_name] = []
-        table_schemas[table_name].append(col_name)
+    try:
+        c = conn.cursor()
+        c.execute("SELECT table_name, column_name"
+                  " FROM information_schema.columns"
+                  f" WHERE table_schema = 'github';")
+        tables = c.fetchall()
+        table_schemas = {}
+        for row in tables:
+            table_name = row[0]
+            col_name = row[1]
+            if table_name not in table_schemas.keys():
+                table_schemas[table_name] = []
+            table_schemas[table_name].append(col_name)
+        schema = '\n'.join([f"table name: {k}, table columns: {','.join(v)}" for k, v in table_schemas.items()])
+        return schema
+    finally:
+        close_db(conn)
 
-    close_db(conn)
-    schema = '\n'.join([f"table name: {k}, table columns: {','.join(v)}" for k, v in table_schemas.items()])
-    return schema
 
 
 def question2sql(schemas, question):
@@ -208,11 +207,13 @@ def question2sql(schemas, question):
 
 def execute(query):
     conn = get_db()
-    cur = conn.cursor()
-    cur.execute(query)
-    res = cur.fetchall()
-    close_db(conn)
-    return res
+    try:
+        cur = conn.cursor()
+        cur.execute(query)
+        res = cur.fetchall()
+        return res
+    finally:
+        close_db(conn)
 
 
 def describe(question, query, rows, references):
