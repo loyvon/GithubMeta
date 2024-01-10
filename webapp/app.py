@@ -44,7 +44,9 @@ def search():
                 metadatas[repo] = meta
             if repo not in refs:
                 refs[repo] = ""
-            refs[repo] += doc.page_content
+
+            # make the page content more compact.
+            refs[repo] += ' '.join(doc.page_content.split())
 
         refs = '\n\n\n'.join([f"repository {k}: {v}" for k, v in refs.items()])
         if metadatas is not None:
