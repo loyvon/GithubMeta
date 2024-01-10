@@ -2,6 +2,8 @@ import hashlib
 import json
 import os
 import tempfile
+import traceback
+
 import openai
 import requests
 from requests.auth import HTTPBasicAuth
@@ -56,6 +58,7 @@ def load_into_vector_db(repo, readme):
             vectordb.add_documents(documents=docs[:5])  # (ids=[repo_name], metadatas=[{"repo": repo_name}], texts=docs)
             break
         except openai.error.RateLimitError as err:
+            print(traceback.format_exc())
             print(err)
         trial += 1
     os.remove(path)
@@ -68,6 +71,7 @@ def query_vector_db(query, filter=None, top_n=1):
             docs = vectordb.similarity_search_with_score(query, filter=filter)
             return [_ for _ in docs[:top_n] if _[1] > 0.8]
         except openai.error.RateLimitError as err:
+            print(traceback.format_exc())
             print(err)
         trial += 1
     return None
@@ -75,7 +79,7 @@ def query_vector_db(query, filter=None, top_n=1):
 
 def get_db():
     conn = mysql.connector.connect(pool_name="mypool",
-                                   pool_size=10,
+                                   pool_size=100,
                                    host=Configuration.MysqlHost,
                                    user=Configuration.MysqlUser,
                                    password=Configuration.MysqlPasswd,
@@ -111,7 +115,8 @@ def init_db():
     close_db(conn)
 
 
-def load_repo_into_db(conn, data):
+def load_repo_into_db(data):
+    conn = get_db()
     cursor = conn.cursor()
     cursor.execute(
         "REPLACE INTO repos "
@@ -145,6 +150,8 @@ def load_repo_into_db(conn, data):
          data['score'] if 'score' in data is not None else None,
          data['readme_md5'],
          data['extra']))
+    conn.commit()
+    close_db(conn)
 
 
 def load_tables_schema():
@@ -254,10 +261,7 @@ def load_repo(repo_name):
         repo['readme_md5'] = None
 
     repo["extra"] = json.dumps(extra)
-    conn = get_db()
-    load_repo_into_db(conn, repo)
-    conn.commit()
-    close_db(conn)
+    load_repo_into_db(repo)
     print(f'loaded repo: {repo_name}')
 
 

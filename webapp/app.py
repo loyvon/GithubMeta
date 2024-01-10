@@ -1,5 +1,6 @@
 import json
 import time
+import traceback
 from concurrent.futures import ThreadPoolExecutor
 from flask import Flask, send_from_directory, request, Response, jsonify
 from flask_limiter import Limiter
@@ -55,6 +56,7 @@ def search():
         description = utils.describe(question, sql, db_res, refs)
         print(f'Answer:\n{description}')
     except Exception as ex:
+        print(traceback.format_exc())
         print(f"Failed to answer question \"{question}\", exception: {ex}")
 
     return description
@@ -71,6 +73,7 @@ def load_repos():
                 utils.load_repo(repo)
                 time.sleep(1)
             except Exception as ex:
+                print(traceback.format_exc())
                 print(f"Failed to load repo {repo}, error: {ex}")
         utils.backup_vectordb()
 
