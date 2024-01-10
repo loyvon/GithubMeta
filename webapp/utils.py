@@ -79,7 +79,7 @@ def query_vector_db(query, filter=None, top_n=1):
 
 def get_db():
     conn = mysql.connector.connect(pool_name="mypool",
-                                   pool_size=100,
+                                   pool_size=10,
                                    host=Configuration.MysqlHost,
                                    user=Configuration.MysqlUser,
                                    password=Configuration.MysqlPasswd,
