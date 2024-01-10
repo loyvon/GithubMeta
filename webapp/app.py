@@ -67,8 +67,11 @@ def load_repos():
 
     def load_repos():
         for repo in repo_list:
-            utils.load_repo(repo)
-            time.sleep(1)
+            try:
+                utils.load_repo(repo)
+                time.sleep(1)
+            except Exception as ex:
+                print(f"Failed to load repo {repo}, error: {ex}")
         utils.backup_vectordb()
 
     executor.submit(load_repos)
