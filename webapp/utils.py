@@ -69,7 +69,7 @@ def query_vector_db(query, filter=None, top_n=1):
     while trial < 5:
         try:
             docs = vectordb.similarity_search_with_score(query, filter=filter)
-            return [_ for _ in docs[:top_n] if _[1] > 0.4]
+            return [_[0] for _ in docs[:top_n] if _[1] > 0.4]
         except openai.error.RateLimitError as err:
             print(traceback.format_exc())
             print(err)
@@ -171,7 +171,6 @@ def load_tables_schema():
         return schema
     finally:
         close_db(conn)
-
 
 
 def question2sql(schemas, question):
