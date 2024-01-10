@@ -75,6 +75,7 @@ def load_repos():
             except Exception as ex:
                 print(traceback.format_exc())
                 print(f"Failed to load repo {repo}, error: {ex}")
+        print("Finished loading repos.")
         utils.backup_vectordb()
 
     executor.submit(load_repos)

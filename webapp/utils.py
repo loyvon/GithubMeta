@@ -178,7 +178,7 @@ def question2sql(schemas, question):
     prompt = ("MySql tables schemas:\n\n```{}```"
               "\n\nPlease generate a query to answer question: ```{}```\n\n"
               "Start the query with `<` and end the query with `>`, example: `<SELECT * FROM repos LIMIT 1>`."
-              "And please only get the relevant columns from the tables, usually 5 columns is preferred."
+              "And please only get the relevant columns from the tables, usually less than 10 columns is preferred."
               "And please always shorten the description (column `description`) in the result to within 50 words."
               "And please always order by stargazers_count DESC and limit 10"
               "If you are not sure how to generate the query, just respond `<>`"
