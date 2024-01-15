@@ -2,9 +2,12 @@
 # More GitHub Actions for Azure: https://github.com/Azure/actions
 # More info on Python, GitHub Actions, and Azure App Service: https://aka.ms/python-webapps-actions
 
-name: Build and deploy Python app to Azure Web App - GithubMeta
+name: Build and deploy Python app to Azure Web App - githubmeta
 
 on:
+  push:
+    branches:
+      - main
   workflow_dispatch:
 
 jobs:
@@ -21,41 +24,22 @@ jobs:
 
       - name: Create and start virtual environment
         run: |
-          cd webapp
           python -m venv venv
           source venv/bin/activate
-      
+
       - name: Install dependencies
-        run: |
-          cd webapp
-          pip install -r requirements.txt
-          cd ..
-      
-      - name: Setup Node.js environment
-        uses: actions/setup-node@v4.0.0
-        with:
-          node-version: '16.14.2'
-  
-      - name: Build frontend
-        run: |
-          cd webapp/frontend
-          npm install
-          npm run build
-          cd ../..
+        run: pip install -r requirements.txt
 
       # Optional: Add step to run tests here (PyTest, Django test suites, etc.)
-
       - name: Zip artifact for deployment
-        run: |
-          cd webapp
-          zip release.zip ./* -r
+        run: zip release.zip ./* -r
 
       - name: Upload artifact for deployment jobs
         uses: actions/upload-artifact@v3
         with:
           name: python-app
           path: |
-            webapp/release.zip
+            release.zip
             !venv/
 
   deploy:
@@ -64,7 +48,7 @@ jobs:
     environment:
       name: 'Production'
       url: ${{ steps.deploy-to-webapp.outputs.webapp-url }}
-    
+
     steps:
       - name: Download artifact from build job
         uses: actions/download-artifact@v3
@@ -74,11 +58,10 @@ jobs:
       - name: Unzip artifact for deployment
         run: unzip release.zip
 
-      
       - name: 'Deploy to Azure Web App'
         uses: azure/webapps-deploy@v2
         id: deploy-to-webapp
         with:
-          app-name: 'GithubMeta'
+          app-name: 'githubmeta'
           slot-name: 'Production'
-          publish-profile: ${{ secrets.AZUREAPPSERVICE_PUBLISHPROFILE_7E12A72491B84D6E81F6CA5AA22DB7BD }}
+          publish-profile: ${{ secrets.AZUREAPPSERVICE_PUBLISHPROFILE_AF2C8A02E335405F9A4BE6FA46B6CF63 }}
