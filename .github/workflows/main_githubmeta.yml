@@ -5,9 +5,6 @@
 name: Build and deploy Python app to Azure Web App - githubmeta
 
 on:
-  push:
-    branches:
-      - main
   workflow_dispatch:
 
 jobs:
@@ -24,22 +21,40 @@ jobs:
 
       - name: Create and start virtual environment
         run: |
+          cd webapp
           python -m venv venv
           source venv/bin/activate
-
+      
       - name: Install dependencies
-        run: pip install -r requirements.txt
-
+        run: |
+          cd webapp
+          pip install -r requirements.txt
+          cd ..
+  
+      - name: Setup Node.js environment
+        uses: actions/setup-node@v4.0.0
+        with:
+          node-version: '16.14.2'
+  
+      - name: Build frontend
+        run: |
+          cd webapp/frontend
+          npm install
+          npm run build
+          cd ../..
+    
       # Optional: Add step to run tests here (PyTest, Django test suites, etc.)
       - name: Zip artifact for deployment
-        run: zip release.zip ./* -r
-
+        run: |
+          cd webapp
+          zip release.zip ./* -r
+    
       - name: Upload artifact for deployment jobs
         uses: actions/upload-artifact@v3
         with:
           name: python-app
           path: |
-            release.zip
+            webapp/release.zip
             !venv/
 
   deploy:
