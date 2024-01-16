@@ -13,9 +13,6 @@ class Configuration:
     OpenaiAzureEndpoint = os.environ["OPENAI_AZURE_ENDPOINT"]
     OpenaiModel = os.environ["OPENAI_MODEL"]
 
-    MysqlHost = os.environ["AZURE_MYSQL_HOST"]
-    MysqlName = os.environ["AZURE_MYSQL_NAME"]
-    MysqlPasswd = os.environ["AZURE_MYSQL_PASSWORD"]
-    MysqlUser = os.environ["AZURE_MYSQL_USER"]
-
-    AzureBlobConnectionString = os.environ['AZURE_STORAGEBLOB_CONNECTIONSTRING']
+    DbHost = os.environ["DB_HOST"]
+    DbPassword = os.environ["DB_PASSWORD"]
+    DbUser = os.environ["DB_USER"]
