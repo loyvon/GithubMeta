@@ -1,5 +1,6 @@
 import json
 import time
+import traceback
 from concurrent.futures import ThreadPoolExecutor
 from flask import Flask, send_from_directory, request, Response, jsonify
 from flask_limiter import Limiter
@@ -30,13 +31,29 @@ def search():
     try:
         docs = utils.query_vector_db(question, top_n=10)
         refs = {}
+        metadatas = {}
         for doc in docs:
             repo = doc.metadata['full_name']
+            if repo not in metadatas:
+                necessary_metadata_list = ["full_name", "owner_login", "description", "topics",
+                                           "created_at", "updated_at", "license", "extra"]
+                meta = {}
+                for k, v in doc.metadata.items():
+                    if k in necessary_metadata_list:
+                        meta[k] = v
+                metadatas[repo] = meta
             if repo not in refs:
                 refs[repo] = ""
-            refs[repo] += doc.page_content
+
+            # make the page content more compact.
+            refs[repo] += ' '.join(doc.page_content.split())
 
         refs = '\n\n\n'.join([f"repository {k}: {v}" for k, v in refs.items()])
+        if metadatas is not None:
+            # Only select necessary metadata
+
+            metadatas = json.dumps(metadatas, separators=(',', ':'))
+            refs += f"\n\n\nmetadatas for each repository: {metadatas}"
 
         sql = utils.question2sql(utils.load_tables_schema(), question)
         db_res = None
@@ -49,6 +66,7 @@ def search():
         description = utils.describe(question, sql, db_res, refs)
         print(f'Answer:\n{description}')
     except Exception as ex:
+        print(traceback.format_exc())
         print(f"Failed to answer question \"{question}\", exception: {ex}")
 
     return description
@@ -61,8 +79,13 @@ def load_repos():
 
     def load_repos():
         for repo in repo_list:
-            utils.load_repo(repo)
-            time.sleep(1)
+            try:
+                utils.load_repo(repo)
+                time.sleep(1)
+            except Exception as ex:
+                print(traceback.format_exc())
+                print(f"Failed to load repo {repo}, error: {ex}")
+        print("Finished loading repos.")
         utils.backup_vectordb()
 
     executor.submit(load_repos)

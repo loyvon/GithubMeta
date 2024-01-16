@@ -2,6 +2,8 @@ import hashlib
 import json
 import os
 import tempfile
+import traceback
+
 import openai
 import requests
 from requests.auth import HTTPBasicAuth
@@ -30,20 +32,11 @@ def init_vectordb():
 
 
 def backup_vectordb():
-    vectordb.ds.flush()
+    vectordb.ds().flush()
 
 
 def load_into_vector_db(repo, readme):
     repo_name = repo['full_name']
-    readme_md5 = hashlib.md5(readme.encode(encoding='UTF-8', errors='strict')).hexdigest()
-    repo['readme_md5'] = readme_md5
-    loaded_repo = vectordb.ds().filter(lambda sample: sample.meta['readme_md5'] == readme_md5)
-    if loaded_repo.num_samples > 0:
-        # Only update metadata
-        loaded_repo[0].update(repo)
-        print(f"readme of {repo_name} has no update.")
-        return
-
     folder = os.path.join(tempfile.gettempdir(), repo_name)
     if not os.path.exists(folder):
         os.makedirs(folder)
@@ -65,6 +58,7 @@ def load_into_vector_db(repo, readme):
             vectordb.add_documents(documents=docs[:5])  # (ids=[repo_name], metadatas=[{"repo": repo_name}], texts=docs)
             break
         except openai.error.RateLimitError as err:
+            print(traceback.format_exc())
             print(err)
         trial += 1
     os.remove(path)
@@ -74,9 +68,10 @@ def query_vector_db(query, filter=None, top_n=1):
     trial = 0
     while trial < 5:
         try:
-            docs = vectordb.similarity_search(query, filter=filter)
-            return docs[:top_n]
+            docs = vectordb.similarity_search_with_score(query, filter=filter)
+            return [_[0] for _ in docs[:top_n] if _[1] > 0.4]
         except openai.error.RateLimitError as err:
+            print(traceback.format_exc())
             print(err)
         trial += 1
     return None
@@ -110,75 +105,79 @@ def init_db():
                        has_downloads BOOLEAN, has_wiki BOOLEAN, has_pages BOOLEAN, has_discussions BOOLEAN, forks_count INTEGER,
                         archived BOOLEAN, disabled BOOLEAN, open_issues_count INTEGER, license TEXT, allow_forking BOOLEAN, 
                         is_template BOOLEAN, topics TEXT, visibility TEXT, forks INTEGER, open_issues INTEGER, 
-                        watchers INTEGER, default_branch TEXT, score REAL, extra TEXT)''')
-    cursor.execute('''CREATE TABLE IF NOT EXISTS repos_readme_embeddings_vectors  
-                         (repo_id INTEGER, vector_idx INTEGER, vector_val REAL)''')
-    cursor.execute('''create clustered columnstore index ixc 
-                    on repos_readme_embeddings_vectors 
-                    order (repo_id)''')
+                        watchers INTEGER, default_branch TEXT, score REAL, readme_md5 TEXT, extra TEXT)''')
     conn.commit()
     close_db(conn)
 
 
-def load_repo_into_db(conn, data):
-    cursor = conn.cursor()
-    cursor.execute(
-        "REPLACE INTO repos "
-        "(id, name, full_name, owner_id, owner_login, owner_type, html_url, "
-        "description, created_at, updated_at, pushed_at, clone_url, size, "
-        "stargazers_count, watchers_count, language, has_issues, has_projects,"
-        "has_downloads, has_wiki, has_pages, has_discussions, forks_count,"
-        "archived, disabled, open_issues_count, license, allow_forking,"
-        "is_template, topics, visibility, forks, open_issues,"
-        "watchers, default_branch, score, extra)"
-        "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, "
-        "%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
-        (data['id'], data['name'], data['full_name'], data['owner']['id'], data['owner']['login'],
-         data['owner']['type'], data['html_url'], ' '.join(data['description'].split()[:50]), data['created_at'],
-         data['updated_at'],
-         data['pushed_at'], data['clone_url'], data['size'], data['stargazers_count'],
-         data['watchers_count'],
-         data['language'], data['has_issues'], data['has_projects'], data['has_downloads'],
-         data['has_wiki'],
-         data['has_pages'], data['has_discussions'], data['forks_count'], data['archived'],
-         data['disabled'],
-         data['open_issues_count'],
-         data['license']['key'] if data['license'] is not None else None,
-         data['allow_forking'],
-         data['is_template'],
-         ', '.join(data['topics']), data['visibility'], data['forks'], data['open_issues'],
-         data['watchers'],
-         data['default_branch'],
-         data['score'] if 'score' in data is not None else None,
-         data['extra']))
+def load_repo_into_db(data):
+    conn = get_db()
+    try:
+        cursor = conn.cursor()
+        cursor.execute(
+            "REPLACE INTO repos "
+            "(id, name, full_name, owner_id, owner_login, owner_type, html_url, "
+            "description, created_at, updated_at, pushed_at, clone_url, size, "
+            "stargazers_count, watchers_count, language, has_issues, has_projects,"
+            "has_downloads, has_wiki, has_pages, has_discussions, forks_count,"
+            "archived, disabled, open_issues_count, license, allow_forking,"
+            "is_template, topics, visibility, forks, open_issues,"
+            "watchers, default_branch, score, readme_md5, extra)"
+            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, "
+            "%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+            (data['id'], data['name'], data['full_name'], data['owner']['id'], data['owner']['login'],
+             data['owner']['type'], data['html_url'],
+             ' '.join(data['description'].split()[:50]) if data['description'] is not None else None,
+             data['created_at'],
+             data['updated_at'],
+             data['pushed_at'], data['clone_url'], data['size'], data['stargazers_count'],
+             data['watchers_count'],
+             data['language'], data['has_issues'], data['has_projects'], data['has_downloads'],
+             data['has_wiki'],
+             data['has_pages'], data['has_discussions'], data['forks_count'], data['archived'],
+             data['disabled'],
+             data['open_issues_count'],
+             data['license']['key'] if data['license'] is not None else None,
+             data['allow_forking'],
+             data['is_template'],
+             ', '.join(data['topics']), data['visibility'], data['forks'], data['open_issues'],
+             data['watchers'],
+             data['default_branch'],
+             data['score'] if 'score' in data is not None else None,
+             data['readme_md5'],
+             data['extra']))
+        conn.commit()
+    finally:
+        close_db(conn)
 
 
 def load_tables_schema():
     """Load the table schema as return the schema in text format."""
     conn = get_db()
-    c = conn.cursor()
-    c.execute("SELECT table_name, column_name"
-              " FROM information_schema.columns"
-              f" WHERE table_schema = 'github';")
-    tables = c.fetchall()
-    table_schemas = {}
-    for row in tables:
-        table_name = row[0]
-        col_name = row[1]
-        if table_name not in table_schemas.keys():
-            table_schemas[table_name] = []
-        table_schemas[table_name].append(col_name)
-
-    close_db(conn)
-    schema = '\n'.join([f"table name: {k}, table columns: {','.join(v)}" for k, v in table_schemas.items()])
-    return schema
+    try:
+        c = conn.cursor()
+        c.execute("SELECT table_name, column_name"
+                  " FROM information_schema.columns"
+                  f" WHERE table_schema = 'github';")
+        tables = c.fetchall()
+        table_schemas = {}
+        for row in tables:
+            table_name = row[0]
+            col_name = row[1]
+            if table_name not in table_schemas.keys():
+                table_schemas[table_name] = []
+            table_schemas[table_name].append(col_name)
+        schema = '\n'.join([f"table name: {k}, table columns: {','.join(v)}" for k, v in table_schemas.items()])
+        return schema
+    finally:
+        close_db(conn)
 
 
 def question2sql(schemas, question):
     prompt = ("MySql tables schemas:\n\n```{}```"
               "\n\nPlease generate a query to answer question: ```{}```\n\n"
               "Start the query with `<` and end the query with `>`, example: `<SELECT * FROM repos LIMIT 1>`."
-              "And please only get the relevant columns from the tables, usually 5 columns is preferred."
+              "And please only get the relevant columns from the tables, usually less than 10 columns is preferred."
               "And please always shorten the description (column `description`) in the result to within 50 words."
               "And please always order by stargazers_count DESC and limit 10"
               "If you are not sure how to generate the query, just respond `<>`"
@@ -207,11 +206,13 @@ def question2sql(schemas, question):
 
 def execute(query):
     conn = get_db()
-    cur = conn.cursor()
-    cur.execute(query)
-    res = cur.fetchall()
-    close_db(conn)
-    return res
+    try:
+        cur = conn.cursor()
+        cur.execute(query)
+        res = cur.fetchall()
+        return res
+    finally:
+        close_db(conn)
 
 
 def describe(question, query, rows, references):
@@ -250,12 +251,17 @@ def load_repo(repo_name):
         return
     extra = get_extra_info(repo_name)
     readme = get_readme(repo_name, repo['default_branch'])
-    load_into_vector_db(repo, readme)
+    if readme is not None:
+        readme_md5 = hashlib.md5(readme.encode(encoding='UTF-8', errors='strict')).hexdigest()
+        repo['readme_md5'] = readme_md5
+        rows = execute(f"SELECT COUNT(*) FROM repos WHERE `full_name` = '{repo_name}' AND `readme_md5` = '{readme_md5}'")
+        if rows[0][0] == 0:
+            load_into_vector_db(repo, readme)
+    else:
+        repo['readme_md5'] = None
+
     repo["extra"] = json.dumps(extra)
-    conn = get_db()
-    load_repo_into_db(conn, repo)
-    conn.commit()
-    close_db(conn)
+    load_repo_into_db(repo)
     print(f'loaded repo: {repo_name}')
 
 
