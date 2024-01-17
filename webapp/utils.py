@@ -333,7 +333,10 @@ def load_repo(repo_name):
 
 def get_repo(repo_name):
     url = f"https://api.github.com/repos/{repo_name}"
-    return json.loads(get(url))
+    resp = get(url)
+    if resp is None:
+        return None
+    return json.loads(resp)
 
 
 def get_readme(repo_name, default_branch):
