@@ -10,7 +10,7 @@ import utils
 app = Flask(__name__, static_folder='frontend/build')
 limiter = Limiter(app=app, key_func=get_remote_address, default_limits=["400 per day", "100 per hour"])
 executor = ThreadPoolExecutor(1)
-
+utils.init_db()
 
 @app.route('/', defaults={'path': ''})
 @app.route('/<path:path>')

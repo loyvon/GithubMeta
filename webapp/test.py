@@ -35,6 +35,6 @@ def test_vectordb():
 if __name__ == "__main__":
     # utils.init_db()
     test_load_repo()
-    # test_e2e()
+    test_e2e()
     # summarize_repo()
     test_vectordb()

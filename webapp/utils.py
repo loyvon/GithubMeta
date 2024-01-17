@@ -46,7 +46,7 @@ def get_db():
                             password=Configuration.DbPassword,
                             host=Configuration.DbHost,
                             port=5432,
-                            database="githubmeta-database",
+                            database="githubmeta",
                             sslmode="require")
     return conn
 
@@ -101,12 +101,28 @@ def init_db():
                             extra TEXT
                         )
                         ''')
-    cursor.execute("""CREATE TABLE repo_readme_vector(
-                    repo_id PRIMARY KEY,
-                    chunk_id INTEGER,
-                    text TEXT,
-                    embedding vector(1536)
-                    );""")
+    cursor.execute('''CREATE TABLE IF NOT EXISTS repo_readme_vector  
+                        (
+                            repo_id INTEGER,
+                            chunk_id INTEGER,
+                            text TEXT,
+                            embedding vector(1536)
+                        )
+                        ''')
+    cursor.execute("""DO $$
+                    BEGIN
+                        IF NOT EXISTS (
+                            SELECT 1
+                            FROM   pg_constraint 
+                            WHERE  conname = 'repo_chunk_unique'
+                        )
+                        THEN
+                            ALTER TABLE repo_readme_vector
+                            ADD CONSTRAINT repo_chunk_unique UNIQUE (repo_id, chunk_id);
+                        END IF;
+                    END
+                    $$;
+                    """)
     cursor.execute("""
         create or replace function match_readme (
           query_embedding vector(1536),
@@ -114,8 +130,9 @@ def init_db():
           match_count int
         )
         returns table (
-          id bigint,
-          content text,
+          repo_id int,
+          chunk_id int,
+          text text,
           similarity float
         )
         language sql stable
@@ -139,17 +156,20 @@ def load_repo_into_db(data):
     conn = get_db()
     try:
         cursor = conn.cursor()
+        repo_col_list = ['id', 'name', 'full_name', 'owner_id', 'owner_login', 'owner_type', 'html_url',
+                         'description', 'created_at', 'updated_at', 'pushed_at', 'clone_url', 'size',
+                         'stargazers_count', 'watchers_count', 'language', 'has_issues', 'has_projects',
+                         'has_downloads', 'has_wiki', 'has_pages', 'has_discussions', 'forks_count',
+                         'archived', 'disabled', 'open_issues_count', 'license', 'allow_forking',
+                         'is_template', 'topics', 'visibility', 'forks', 'open_issues',
+                         'watchers', 'default_branch', 'score', 'readme_md5', 'extra']
         cursor.execute(
-            "REPLACE INTO repos "
-            "(id, name, full_name, owner_id, owner_login, owner_type, html_url, "
-            "description, created_at, updated_at, pushed_at, clone_url, size, "
-            "stargazers_count, watchers_count, language, has_issues, has_projects,"
-            "has_downloads, has_wiki, has_pages, has_discussions, forks_count,"
-            "archived, disabled, open_issues_count, license, allow_forking,"
-            "is_template, topics, visibility, forks, open_issues,"
-            "watchers, default_branch, score, readme_md5, extra)"
+            "INSERT INTO repos "
+            f"({','.join(repo_col_list)})"
             "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, "
-            "%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+            "%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"
+            "ON CONFLICT (id) DO UPDATE SET "
+            f"{','.join([_ + ' = ' + 'excluded.' + _ for _ in repo_col_list])};",
             (data['id'], data['name'], data['full_name'], data['owner']['id'], data['owner']['login'],
              data['owner']['type'], data['html_url'],
              ' '.join(data['description'].split()[:50]) if data['description'] is not None else None,
@@ -174,9 +194,12 @@ def load_repo_into_db(data):
         embeddings = data['readme']
         if embeddings is not None:
             for idx, embed in enumerate(embeddings):
-                cursor.execute("REPLACE INTO repo_readme_vector "
-                               "(repo_id, chunk_id, text, embedding)"
-                               "VALUES (%s, %s, %s, %s)",
+                repo_readme_vector_col_list = ['repo_id', 'chunk_id', 'text', 'embedding']
+                cursor.execute("INSERT INTO repo_readme_vector "
+                               f"({','.join(repo_readme_vector_col_list)})"
+                               "VALUES (%s, %s, %s, %s)"
+                               "ON CONFLICT (repo_id, chunk_id) DO UPDATE SET "
+                               f"{','.join([_ + ' = ' + 'excluded.' + _ for _ in repo_readme_vector_col_list])};",
                                (data['id'], idx, embed[0], embed[1]))
         conn.commit()
     finally:
@@ -209,7 +232,7 @@ def question2sql(schemas, question):
     prompt = ("Postgresql tables schemas:\n\n```{}```"
               "Function `match_readme` can be used to retrieve the relevant readme content of repos. "
               "If you want to search the readme for answer, call this function with 3 params: {}, 0.5, 10,"
-              " the result of the function call is (repo id, readme chunk index, text of the chunk). "
+              " the result of the function call is (repo id, readme chunk index, text of the chunk, similarity). "
               "You can use the result from the function to join `repos` for further analysis."
               "\n\nPlease generate a query to answer question: ```{}```\n\n"
               "Start the query with `<` and end the query with `>`, example: `<SELECT * FROM repos LIMIT 1>`."
@@ -293,7 +316,7 @@ def load_repo(repo_name):
         readme_md5 = hashlib.md5(readme.encode(encoding='UTF-8', errors='strict')).hexdigest()
         repo['readme_md5'] = readme_md5
         repo['readme'] = None
-        rows = execute(f"SELECT COUNT(*) FROM repos WHERE `full_name` = '{repo_name}' AND `readme_md5` = '{readme_md5}'")
+        rows = execute(f"SELECT COUNT(*) FROM repos WHERE \"full_name\" = '{repo_name}' AND \"readme_md5\" = '{readme_md5}'")
         if rows[0][0] == 0:
             # make the readme more compact.
             readme += ' '.join(readme.split())
