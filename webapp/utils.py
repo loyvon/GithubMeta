@@ -131,7 +131,6 @@ def init_db():
         )
         returns table (
           repo_id int,
-          chunk_id int,
           text text,
           similarity float
         )
@@ -139,12 +138,12 @@ def init_db():
         as $$
           select
             repo_readme_vector.repo_id,
-            repo_readme_vector.chunk_id,
-            repo_readme_vector.text,
-            1 - (repo_readme_vector.embedding <=> query_embedding) as similarity
+            string_agg(repo_readme_vector.text, ' ') AS text,
+            1 - avg(repo_readme_vector.embedding <=> query_embedding) AS similarity
           from repo_readme_vector
           where repo_readme_vector.embedding <=> query_embedding < 1 - match_threshold
-          order by repo_readme_vector.embedding <=> query_embedding
+          group by repo_readme_vector.repo_id
+          order by avg(repo_readme_vector.embedding <=> query_embedding)
           limit match_count;
         $$;
         """)
@@ -211,37 +210,46 @@ def load_tables_schema():
     conn = get_db()
     try:
         c = conn.cursor()
-        c.execute("SELECT table_name, column_name"
+        c.execute("SELECT table_name, column_name, data_type"
                   " FROM information_schema.columns"
-                  f" WHERE table_schema = 'githubmeta-database';")
+                  f" WHERE table_schema = 'public';")
         tables = c.fetchall()
         table_schemas = {}
         for row in tables:
             table_name = row[0]
             col_name = row[1]
+            col_type = row[2]
             if table_name not in table_schemas.keys():
                 table_schemas[table_name] = []
-            table_schemas[table_name].append(col_name)
+            table_schemas[table_name].append(f'{col_name}[{col_type}]')
         schema = '\n'.join([f"table name: {k}, table columns: {','.join(v)}" for k, v in table_schemas.items()])
         return schema
+    except Exception as ex:
+        print(traceback.format_exc())
+        print(f"Failed to load table schema, exception: {ex}")
     finally:
         close_db(conn)
 
 
 def question2sql(schemas, question):
-    prompt = ("Postgresql tables schemas:\n\n```{}```"
+    prompt = ("Postgresql tables schemas:\n\n```{}```\n\n\n"
               "Function `match_readme` can be used to retrieve the relevant readme content of repos. "
-              "If you want to search the readme for answer, call this function with 3 params: {}, 0.5, 10,"
-              " the result of the function call is (repo id, readme chunk index, text of the chunk, similarity). "
-              "You can use the result from the function to join `repos` for further analysis."
+              "If you want to search the readme for answer, call this function, but please just put a placeholder ```<match_readme>``` to represent a call to this function."
+              "This function will do the context comparison and return the readme content relevant to the question. Which means you don't need to compare the question with the readme content in other parts of the query."
+              "For example, you can add a ```<match_readme>``` in the query to represent a complete call ```match_readme([question embedding], 0.5, 10)```."
+              "You can expect the placeholder to be replaced by the actual call to the function."
+              "You can expect the result of the function call is (repo_id, text, similarity), in which the texts are already similar to the question so you don't need to compare to confirm its similarity. "
+              "Example for using the function to get relevant readme content: ```SELECT * FROM <match_readme> AS a JOIN repos ON repos.id = a.repo_id ORDER BY a.similarity DESC LIMIT 10```"
+              "You can union the result from the function and the result from querying `repos` to generate a comprehensive result."
+              "Usually, you don't need to match all the columns in the table, just the relevant columns is enough. Generally, one in description, topics or readme matches is enough."
               "\n\nPlease generate a query to answer question: ```{}```\n\n"
               "Start the query with `<` and end the query with `>`, example: `<SELECT * FROM repos LIMIT 1>`."
               "And please only get the relevant columns from the tables, usually less than 10 columns is preferred."
               "And please always shorten the description (column `description`) in the result to within 50 words."
-              "And please always order by stargazers_count DESC and limit 10"
-              "If you are not sure how to generate the query, just respond `<>`"
+              "And please always order by stargazers_count DESC and limit 10.\n\n"
+              "And please just use commonly used operators unless it's necessary to use some special operators."
+              "If you are not sure how to generate the query, just respond `<>`.\n\n"
               "Query: ".format(schemas,
-                               embedding_function.embed_documents([question], chunk_size=1000)[0],
                                question))
     print(prompt)
     response = openai.ChatCompletion.create(
@@ -260,7 +268,8 @@ def question2sql(schemas, question):
     )
     msg = response.choices[0].message.content
     print(f'Msg from model: \n{msg}\n')
-    sql = msg.strip('<').strip('>').strip('`')
+    embedding_array = embedding_function.embed_documents([question], chunk_size=1000)[0]
+    sql = msg.strip('`').strip('\n').strip('<').strip('>').replace('<match_readme>', f"public.match_readme('{embedding_array}', 0.4, 20)")
     print(f"Generated query: {sql}")
     return sql
 
