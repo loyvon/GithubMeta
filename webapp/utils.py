@@ -279,32 +279,34 @@ def execute(query):
     try:
         cur = conn.cursor()
         cur.execute(query)
+        column_names = [desc[0] for desc in cur.description]
         res = cur.fetchall()
-        return res
+        return column_names, res
     finally:
         close_db(conn)
 
 
-def describe(question, query, rows):
+def describe(question, rows):
     prompt = ("Here is a question to answer: ```{}```\n"
-              "Here is the query: ```{}```\n"
-              "And here is the query result that contains the answer: ```{}```.\n"
+              "And here is the query result that contains the answer:\n"
+              "Column names: ```{}```\n"
+              "Rows: ```{}```\n\n"
               "Please answer the question with the above information, and use abbreviation when necessary "
-              "to limit the response in 1000 words."
+              "to limit the response in 3000 words."
               "Your description should focus on the question and the answer to the question."
               "You should follow the following requirements:"
               "1. Generate the description in markdown format."
               "2. The first part is the query result in table format if query result is not empty."
               "3. The second part is a brief explanation of the table content."
               "4. Don't mention the query, focus on question and result."
-              "Description: ").format(question, query, rows)
+              "Description: ").format(question, rows[0], rows[1])
     print(prompt)
     response = openai.ChatCompletion.create(engine=Configuration.OpenaiModel,
                                             messages=[{"role": "system",
                                                        "content": "You are an assistant that answer questions for people."},
                                                       {"role": "user", "content": prompt}],
                                             temperature=0,
-                                            max_tokens=1000,
+                                            max_tokens=4000,
                                             top_p=1,
                                             frequency_penalty=0,
                                             presence_penalty=0,
@@ -325,7 +327,7 @@ def load_repo(repo_name):
         readme_md5 = hashlib.md5(readme.encode(encoding='UTF-8', errors='strict')).hexdigest()
         repo['readme_md5'] = readme_md5
         repo['readme'] = None
-        rows = execute(f"SELECT COUNT(*) FROM repos WHERE \"full_name\" = '{repo_name}' AND \"readme_md5\" = '{readme_md5}'")
+        _, rows = execute(f"SELECT COUNT(*) FROM repos WHERE \"full_name\" = '{repo_name}' AND \"readme_md5\" = '{readme_md5}'")
         if rows[0][0] == 0:
             # make the readme more compact.
             readme += ' '.join(readme.split())
@@ -375,7 +377,7 @@ def summarize_repo(repo_name):
     A quality rate.
     """
     query = f"SELECT * FROM repos WHERE full_name = '{repo_name}'"
-    data = execute(query)
+    _, data = execute(query)
     res = {}
     if data is not None:
         repo = data[0]

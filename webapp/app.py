@@ -36,7 +36,7 @@ def search():
         if db_res is None:
             return f"Failed to answer question \"{question}\""
 
-        description = utils.describe(question, sql, db_res)
+        description = utils.describe(question, db_res)
         print(f'Answer:\n{description}')
     except Exception as ex:
         print(traceback.format_exc())

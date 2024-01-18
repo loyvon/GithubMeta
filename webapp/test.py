@@ -7,7 +7,7 @@ def test_e2e():
     question = "Which repository has most stargazers?"
     sql = utils.question2sql(utils.load_tables_schema(), question)
     res = utils.execute(sql)
-    print(utils.describe(question, sql, res))
+    print(utils.describe(question, res))
 
 
 def test_load_repo():
