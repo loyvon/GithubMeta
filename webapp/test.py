@@ -1,8 +1,5 @@
-import datetime
 import urllib.parse
-
 import requests
-
 import utils
 
 
@@ -10,7 +7,7 @@ def test_e2e():
     question = "Which repository has most stargazers?"
     sql = utils.question2sql(utils.load_tables_schema(), question)
     res = utils.execute(sql)
-    print(utils.describe(question, sql, res, None))
+    print(utils.describe(question, res))
 
 
 def test_load_repo():
@@ -27,23 +24,17 @@ def summarize_repo():
 
 
 def test_vectordb():
-    utils.init_vectordb()
     repo_name = "tensorflow/tensorflow"
     repo = utils.get_repo(repo_name)
     readme = utils.get_readme(repo_name, repo['default_branch'])
-    utils.load_into_vector_db(repo, readme)
-    ref = utils.query_vector_db("What does tensorflow do?")[0]
-    print(ref[0].page_content)
-    print(ref[0].metadata)
-    utils.backup_vectordb()
+    res = utils.get_chunked_embeddings(repo, readme)
+    for txt, embed in res:
+        print(f"{txt}:{embed}")
 
 
 if __name__ == "__main__":
     # utils.init_db()
     test_load_repo()
-    # test_e2e()
+    test_e2e()
     # summarize_repo()
-    # test_vectordb()
-    utils.init_vectordb()
-    #print(utils.vectordb.delete(delete_all=True))
-    utils.vectordb.ds().summary()
+    test_vectordb()

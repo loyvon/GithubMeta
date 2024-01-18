@@ -10,8 +10,7 @@ import utils
 app = Flask(__name__, static_folder='frontend/build')
 limiter = Limiter(app=app, key_func=get_remote_address, default_limits=["400 per day", "100 per hour"])
 executor = ThreadPoolExecutor(1)
-utils.init_vectordb()
-
+utils.init_db()
 
 @app.route('/', defaults={'path': ''})
 @app.route('/<path:path>')
@@ -29,41 +28,15 @@ def search():
     print(f'Question received: {question}')
     description = f"Failed to answer question \"{question}\""
     try:
-        docs = utils.query_vector_db(question, top_n=10)
-        refs = {}
-        metadatas = {}
-        for doc in docs:
-            repo = doc.metadata['full_name']
-            if repo not in metadatas:
-                necessary_metadata_list = ["full_name", "owner_login", "description", "topics",
-                                           "created_at", "updated_at", "license", "extra"]
-                meta = {}
-                for k, v in doc.metadata.items():
-                    if k in necessary_metadata_list:
-                        meta[k] = v
-                metadatas[repo] = meta
-            if repo not in refs:
-                refs[repo] = ""
-
-            # make the page content more compact.
-            refs[repo] += ' '.join(doc.page_content.split())
-
-        refs = '\n\n\n'.join([f"repository {k}: {v}" for k, v in refs.items()])
-        if metadatas is not None:
-            # Only select necessary metadata
-
-            metadatas = json.dumps(metadatas, separators=(',', ':'))
-            refs += f"\n\n\nmetadatas for each repository: {metadatas}"
-
         sql = utils.question2sql(utils.load_tables_schema(), question)
         db_res = None
         if not (sql is None or sql.isspace()):
             db_res = utils.execute(sql)
 
-        if db_res is None and refs is None:
+        if db_res is None:
             return f"Failed to answer question \"{question}\""
 
-        description = utils.describe(question, sql, db_res, refs)
+        description = utils.describe(question, db_res)
         print(f'Answer:\n{description}')
     except Exception as ex:
         print(traceback.format_exc())
@@ -86,7 +59,6 @@ def load_repos():
                 print(traceback.format_exc())
                 print(f"Failed to load repo {repo}, error: {ex}")
         print("Finished loading repos.")
-        utils.backup_vectordb()
 
     executor.submit(load_repos)
     return Response(), 200

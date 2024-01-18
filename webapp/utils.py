@@ -5,12 +5,11 @@ import tempfile
 import traceback
 
 import openai
+import psycopg2
 import requests
 from requests.auth import HTTPBasicAuth
-import mysql.connector
 from config import Configuration
 from langchain_community.embeddings import AzureOpenAIEmbeddings
-from langchain_community.vectorstores import DeepLake
 from langchain.text_splitter import CharacterTextSplitter
 from langchain_community.document_loaders import UnstructuredMarkdownLoader
 
@@ -18,24 +17,13 @@ openai.api_type = Configuration.OpenaiApiType
 openai.api_base = Configuration.OpenaiAzureEndpoint.strip()
 openai.api_version = Configuration.OpenaiApiVersion
 openai.api_key = Configuration.OpenaiApiKey.strip()
-vectordb: DeepLake = None
 
-
-def init_vectordb():
-    global vectordb
-    embedding_function = AzureOpenAIEmbeddings(azure_endpoint=Configuration.OpenaiAzureEndpoint,
+embedding_function = AzureOpenAIEmbeddings(azure_endpoint=Configuration.OpenaiAzureEndpoint,
                                            azure_deployment="text-embedding-ada-002",
                                            api_key=Configuration.OpenaiApiKey)
 
-    vectordb = DeepLake(embedding_function=embedding_function,
-                    dataset_path="az://githubvectordb/vectordb/github")
 
-
-def backup_vectordb():
-    vectordb.ds().flush()
-
-
-def load_into_vector_db(repo, readme):
+def get_chunked_embeddings(repo, readme):
     repo_name = repo['full_name']
     folder = os.path.join(tempfile.gettempdir(), repo_name)
     if not os.path.exists(folder):
@@ -48,46 +36,18 @@ def load_into_vector_db(repo, readme):
     documents = loader.load()
     text_splitter = CharacterTextSplitter(chunk_size=1000, chunk_overlap=50)
     docs = text_splitter.split_documents(documents)
-    for _ in docs:
-        _.metadata = repo
-
-    trial = 0
-    while trial < 5:
-        try:
-            # At most 5 chunks, to avoid too much load on the embedding server
-            vectordb.add_documents(documents=docs[:5])  # (ids=[repo_name], metadatas=[{"repo": repo_name}], texts=docs)
-            break
-        except openai.error.RateLimitError as err:
-            print(traceback.format_exc())
-            print(err)
-        trial += 1
+    texts = [_.page_content for _ in docs]
     os.remove(path)
-
-
-def query_vector_db(query, filter=None, top_n=1):
-    trial = 0
-    while trial < 5:
-        try:
-            docs = vectordb.similarity_search_with_score(query, filter=filter)
-            return [_[0] for _ in docs[:top_n] if _[1] > 0.4]
-        except openai.error.RateLimitError as err:
-            print(traceback.format_exc())
-            print(err)
-        trial += 1
-    return None
+    return zip(texts, embedding_function.embed_documents(texts, chunk_size=1000))
 
 
 def get_db():
-    conn = mysql.connector.connect(pool_name="mypool",
-                                   pool_size=10,
-                                   host=Configuration.MysqlHost,
-                                   user=Configuration.MysqlUser,
-                                   password=Configuration.MysqlPasswd,
-                                   database=Configuration.MysqlName,
-                                   client_flags=[mysql.connector.ClientFlag.SSL],
-                                   ssl_ca='./DigiCertGlobalRootCA.crt.pem',
-                                   ssl_disabled=False,
-                                   port=3306)
+    conn = psycopg2.connect(user=Configuration.DbUser,
+                            password=Configuration.DbPassword,
+                            host=Configuration.DbHost,
+                            port=5432,
+                            database="githubmeta",
+                            sslmode="require")
     return conn
 
 
@@ -98,14 +58,95 @@ def close_db(conn):
 def init_db():
     conn = get_db()
     cursor = conn.cursor()
+    cursor.execute('CREATE EXTENSION IF NOT EXISTS "vector";')
     cursor.execute('''CREATE TABLE IF NOT EXISTS repos  
-                     (id INTEGER PRIMARY KEY, name TEXT, full_name TEXT, owner_id INTEGER, owner_login TEXT, owner_type TEXT, html_url TEXT,
-                      description TEXT, created_at TEXT, updated_at TEXT, pushed_at TEXT, clone_url TEXT, size INTEGER, 
-                      stargazers_count INTEGER, watchers_count INTEGER, language TEXT, has_issues BOOLEAN, has_projects BOOLEAN,
-                       has_downloads BOOLEAN, has_wiki BOOLEAN, has_pages BOOLEAN, has_discussions BOOLEAN, forks_count INTEGER,
-                        archived BOOLEAN, disabled BOOLEAN, open_issues_count INTEGER, license TEXT, allow_forking BOOLEAN, 
-                        is_template BOOLEAN, topics TEXT, visibility TEXT, forks INTEGER, open_issues INTEGER, 
-                        watchers INTEGER, default_branch TEXT, score REAL, readme_md5 TEXT, extra TEXT)''')
+                        (
+                            id INTEGER PRIMARY KEY, 
+                            name TEXT, 
+                            full_name TEXT, 
+                            owner_id INTEGER, 
+                            owner_login TEXT, 
+                            owner_type TEXT, 
+                            html_url TEXT,
+                            description TEXT, 
+                            created_at TEXT, 
+                            updated_at TEXT, 
+                            pushed_at TEXT, 
+                            clone_url TEXT, 
+                            size INTEGER, 
+                            stargazers_count INTEGER, 
+                            watchers_count INTEGER, 
+                            language TEXT, 
+                            has_issues BOOLEAN, 
+                            has_projects BOOLEAN,
+                            has_downloads BOOLEAN, 
+                            has_wiki BOOLEAN, 
+                            has_pages BOOLEAN, 
+                            has_discussions BOOLEAN, 
+                            forks_count INTEGER,
+                            archived BOOLEAN, 
+                            disabled BOOLEAN, 
+                            open_issues_count INTEGER, 
+                            license TEXT, 
+                            allow_forking BOOLEAN, 
+                            is_template BOOLEAN, 
+                            topics TEXT, 
+                            visibility TEXT, 
+                            forks INTEGER, 
+                            open_issues INTEGER, 
+                            watchers INTEGER, 
+                            default_branch TEXT, 
+                            score REAL, 
+                            readme_md5 TEXT, 
+                            extra TEXT
+                        )
+                        ''')
+    cursor.execute('''CREATE TABLE IF NOT EXISTS repo_readme_vector  
+                        (
+                            repo_id INTEGER,
+                            chunk_id INTEGER,
+                            text TEXT,
+                            embedding vector(1536)
+                        )
+                        ''')
+    cursor.execute("""DO $$
+                    BEGIN
+                        IF NOT EXISTS (
+                            SELECT 1
+                            FROM   pg_constraint 
+                            WHERE  conname = 'repo_chunk_unique'
+                        )
+                        THEN
+                            ALTER TABLE repo_readme_vector
+                            ADD CONSTRAINT repo_chunk_unique UNIQUE (repo_id, chunk_id);
+                        END IF;
+                    END
+                    $$;
+                    """)
+    cursor.execute("""
+        create or replace function match_readme (
+          query_embedding vector(1536),
+          match_threshold float,
+          match_count int
+        )
+        returns table (
+          repo_id int,
+          text text,
+          similarity float
+        )
+        language sql stable
+        as $$
+          select
+            repo_readme_vector.repo_id,
+            string_agg(repo_readme_vector.text, ' ') AS text,
+            1 - avg(repo_readme_vector.embedding <=> query_embedding) AS similarity
+          from repo_readme_vector
+          where repo_readme_vector.embedding <=> query_embedding < 1 - match_threshold
+          group by repo_readme_vector.repo_id
+          order by avg(repo_readme_vector.embedding <=> query_embedding)
+          limit match_count;
+        $$;
+        """)
     conn.commit()
     close_db(conn)
 
@@ -114,17 +155,20 @@ def load_repo_into_db(data):
     conn = get_db()
     try:
         cursor = conn.cursor()
+        repo_col_list = ['id', 'name', 'full_name', 'owner_id', 'owner_login', 'owner_type', 'html_url',
+                         'description', 'created_at', 'updated_at', 'pushed_at', 'clone_url', 'size',
+                         'stargazers_count', 'watchers_count', 'language', 'has_issues', 'has_projects',
+                         'has_downloads', 'has_wiki', 'has_pages', 'has_discussions', 'forks_count',
+                         'archived', 'disabled', 'open_issues_count', 'license', 'allow_forking',
+                         'is_template', 'topics', 'visibility', 'forks', 'open_issues',
+                         'watchers', 'default_branch', 'score', 'readme_md5', 'extra']
         cursor.execute(
-            "REPLACE INTO repos "
-            "(id, name, full_name, owner_id, owner_login, owner_type, html_url, "
-            "description, created_at, updated_at, pushed_at, clone_url, size, "
-            "stargazers_count, watchers_count, language, has_issues, has_projects,"
-            "has_downloads, has_wiki, has_pages, has_discussions, forks_count,"
-            "archived, disabled, open_issues_count, license, allow_forking,"
-            "is_template, topics, visibility, forks, open_issues,"
-            "watchers, default_branch, score, readme_md5, extra)"
+            "INSERT INTO repos "
+            f"({','.join(repo_col_list)})"
             "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, "
-            "%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+            "%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"
+            "ON CONFLICT (id) DO UPDATE SET "
+            f"{','.join([_ + ' = ' + 'excluded.' + _ for _ in repo_col_list])};",
             (data['id'], data['name'], data['full_name'], data['owner']['id'], data['owner']['login'],
              data['owner']['type'], data['html_url'],
              ' '.join(data['description'].split()[:50]) if data['description'] is not None else None,
@@ -146,6 +190,16 @@ def load_repo_into_db(data):
              data['score'] if 'score' in data is not None else None,
              data['readme_md5'],
              data['extra']))
+        embeddings = data['readme']
+        if embeddings is not None:
+            for idx, embed in enumerate(embeddings):
+                repo_readme_vector_col_list = ['repo_id', 'chunk_id', 'text', 'embedding']
+                cursor.execute("INSERT INTO repo_readme_vector "
+                               f"({','.join(repo_readme_vector_col_list)})"
+                               "VALUES (%s, %s, %s, %s)"
+                               "ON CONFLICT (repo_id, chunk_id) DO UPDATE SET "
+                               f"{','.join([_ + ' = ' + 'excluded.' + _ for _ in repo_readme_vector_col_list])};",
+                               (data['id'], idx, embed[0], embed[1]))
         conn.commit()
     finally:
         close_db(conn)
@@ -156,32 +210,47 @@ def load_tables_schema():
     conn = get_db()
     try:
         c = conn.cursor()
-        c.execute("SELECT table_name, column_name"
+        c.execute("SELECT table_name, column_name, data_type"
                   " FROM information_schema.columns"
-                  f" WHERE table_schema = 'github';")
+                  f" WHERE table_schema = 'public';")
         tables = c.fetchall()
         table_schemas = {}
         for row in tables:
             table_name = row[0]
             col_name = row[1]
+            col_type = row[2]
             if table_name not in table_schemas.keys():
                 table_schemas[table_name] = []
-            table_schemas[table_name].append(col_name)
+            table_schemas[table_name].append(f'{col_name}[{col_type}]')
         schema = '\n'.join([f"table name: {k}, table columns: {','.join(v)}" for k, v in table_schemas.items()])
         return schema
+    except Exception as ex:
+        print(traceback.format_exc())
+        print(f"Failed to load table schema, exception: {ex}")
     finally:
         close_db(conn)
 
 
 def question2sql(schemas, question):
-    prompt = ("MySql tables schemas:\n\n```{}```"
+    prompt = ("Postgresql tables schemas:\n\n```{}```\n\n\n"
+              "Function `match_readme` can be used to retrieve the relevant readme content of repos. "
+              "If you want to search the readme for answer, call this function, but please just put a placeholder ```<match_readme>``` to represent a call to this function."
+              "This function will do the context comparison and return the readme content relevant to the question. Which means you don't need to compare the question with the readme content in other parts of the query."
+              "For example, you can add a ```<match_readme>``` in the query to represent a complete call ```match_readme([question embedding], 0.5, 10)```."
+              "You can expect the placeholder to be replaced by the actual call to the function."
+              "You can expect the result of the function call is (repo_id, text, similarity), in which the texts are already similar to the question so you don't need to compare to confirm its similarity. "
+              "Example for using the function to get relevant readme content: ```SELECT * FROM <match_readme> AS a JOIN repos ON repos.id = a.repo_id ORDER BY a.similarity DESC LIMIT 10```"
+              "You can union the result from the function and the result from querying `repos` to generate a comprehensive result."
+              "Usually, you don't need to match all the columns in the table, just the relevant columns is enough. Generally, one in description, topics or readme matches is enough."
               "\n\nPlease generate a query to answer question: ```{}```\n\n"
               "Start the query with `<` and end the query with `>`, example: `<SELECT * FROM repos LIMIT 1>`."
               "And please only get the relevant columns from the tables, usually less than 10 columns is preferred."
               "And please always shorten the description (column `description`) in the result to within 50 words."
-              "And please always order by stargazers_count DESC and limit 10"
-              "If you are not sure how to generate the query, just respond `<>`"
-              "Query: ".format(schemas, question))
+              "And please always order by stargazers_count DESC and limit 10.\n\n"
+              "And please just use commonly used operators unless it's necessary to use some special operators."
+              "If you are not sure how to generate the query, just respond `<>`.\n\n"
+              "Query: ".format(schemas,
+                               question))
     print(prompt)
     response = openai.ChatCompletion.create(
         engine=Configuration.OpenaiModel,
@@ -199,7 +268,8 @@ def question2sql(schemas, question):
     )
     msg = response.choices[0].message.content
     print(f'Msg from model: \n{msg}\n')
-    sql = msg.strip('<').strip('>').strip('`')
+    embedding_array = embedding_function.embed_documents([question], chunk_size=1000)[0]
+    sql = msg.strip('`').strip('\n').strip('<').strip('>').replace('<match_readme>', f"public.match_readme('{embedding_array}', 0.4, 20)")
     print(f"Generated query: {sql}")
     return sql
 
@@ -209,33 +279,34 @@ def execute(query):
     try:
         cur = conn.cursor()
         cur.execute(query)
+        column_names = [desc[0] for desc in cur.description]
         res = cur.fetchall()
-        return res
+        return column_names, res
     finally:
         close_db(conn)
 
 
-def describe(question, query, rows, references):
+def describe(question, rows):
     prompt = ("Here is a question to answer: ```{}```\n"
-              "Here is the query: ```{}```\n"
-              "And here is the query result that contains the answer: ```{}```.\n"
-              "And here are the references, each belong to a specific repo: ```{}```.\n"
+              "And here is the query result that contains the answer:\n"
+              "Column names: ```{}```\n"
+              "Rows: ```{}```\n\n"
               "Please answer the question with the above information, and use abbreviation when necessary "
-              "to limit the response in 1000 words."
+              "to limit the response in 3000 words."
               "Your description should focus on the question and the answer to the question."
               "You should follow the following requirements:"
               "1. Generate the description in markdown format."
               "2. The first part is the query result in table format if query result is not empty."
               "3. The second part is a brief explanation of the table content."
               "4. Don't mention the query, focus on question and result."
-              "Description: ").format(question, query, rows, references)
+              "Description: ").format(question, rows[0], rows[1])
     print(prompt)
     response = openai.ChatCompletion.create(engine=Configuration.OpenaiModel,
                                             messages=[{"role": "system",
                                                        "content": "You are an assistant that answer questions for people."},
                                                       {"role": "user", "content": prompt}],
                                             temperature=0,
-                                            max_tokens=1000,
+                                            max_tokens=4000,
                                             top_p=1,
                                             frequency_penalty=0,
                                             presence_penalty=0,
@@ -251,14 +322,20 @@ def load_repo(repo_name):
         return
     extra = get_extra_info(repo_name)
     readme = get_readme(repo_name, repo['default_branch'])
+    embeddings = None
     if readme is not None:
         readme_md5 = hashlib.md5(readme.encode(encoding='UTF-8', errors='strict')).hexdigest()
         repo['readme_md5'] = readme_md5
-        rows = execute(f"SELECT COUNT(*) FROM repos WHERE `full_name` = '{repo_name}' AND `readme_md5` = '{readme_md5}'")
+        repo['readme'] = None
+        _, rows = execute(f"SELECT COUNT(*) FROM repos WHERE \"full_name\" = '{repo_name}' AND \"readme_md5\" = '{readme_md5}'")
         if rows[0][0] == 0:
-            load_into_vector_db(repo, readme)
+            # make the readme more compact.
+            readme += ' '.join(readme.split())
+            embeddings = get_chunked_embeddings(repo, readme)
+            repo['readme'] = embeddings
     else:
         repo['readme_md5'] = None
+        repo['readme'] = None
 
     repo["extra"] = json.dumps(extra)
     load_repo_into_db(repo)
@@ -267,7 +344,10 @@ def load_repo(repo_name):
 
 def get_repo(repo_name):
     url = f"https://api.github.com/repos/{repo_name}"
-    return json.loads(get(url))
+    resp = get(url)
+    if resp is None:
+        return None
+    return json.loads(resp)
 
 
 def get_readme(repo_name, default_branch):
@@ -297,7 +377,7 @@ def summarize_repo(repo_name):
     A quality rate.
     """
     query = f"SELECT * FROM repos WHERE full_name = '{repo_name}'"
-    data = execute(query)
+    _, data = execute(query)
     res = {}
     if data is not None:
         repo = data[0]
