@@ -264,16 +264,8 @@ def question2sql(schemas, question):
               "And please always use '%>' operator instead of 'LIKE' to do word matching as there are , example: `WHERE description <% 'databases'`.\n"
               "And please avoid 'SELECT * FROM xxx' and please be selective as to the columns in the intermediate result and final result.\n"
               "Example query for finding repos which are databases:\n"
-              """```<WITH readme_match AS (
-                    SELECT repo_id, text, similarity FROM match_readme([0.1, 0.2, 0.3])
-                ),
-                readme_repos AS (
-                    SELECT 
-                        repos.id
-                    FROM 
-                        readme_match 
-                    JOIN 
-                        repos ON repos.id = readme_match.repo_id
+              """```<WITH readme_repos AS (
+                    SELECT repo_id FROM match_readme([0.1, 0.2, 0.3])
                 ),
                 description_match AS (
                     SELECT 
@@ -299,10 +291,10 @@ def question2sql(schemas, question):
                     SELECT *  FROM description_match
                     UNION
                     SELECT * FROM topics_match
-                    ORDER BY stargazers_count DESC
-                    LIMIT 10
                 )
                 SELECT name, full_name, language, stargazers_count, html_url, topics FROM repos JOIN repos_matched ON repos.id = repos_matched.id
+                ORDER BY stargazers_count DESC
+                LIMIT 10
                 >```\n\n"""
               "If you are not sure how to generate the query, just respond `<>`.\n\n"
               "Query: ".format(schemas, question, [0.1, 0.2, 0.3]))
