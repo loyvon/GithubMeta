@@ -109,6 +109,20 @@ def init_db():
                             embedding vector(1536)
                         )
                         ''')
+    cursor.execute('''CREATE TABLE IF NOT EXISTS repo_description_vector  
+                        (
+                            repo_id INTEGER,
+                            text TEXT,
+                            embedding vector(1536)
+                        )
+                        ''')
+    cursor.execute('''CREATE TABLE IF NOT EXISTS repo_topics_vector  
+                        (
+                            repo_id INTEGER,
+                            text TEXT,
+                            embedding vector(1536)
+                        )
+                        ''')
     cursor.execute("""DO $$
                     BEGIN
                         IF NOT EXISTS (
@@ -233,24 +247,65 @@ def load_tables_schema():
 
 def question2sql(schemas, question):
     prompt = ("Postgresql tables schemas:\n\n```{}```\n\n\n"
-              "Function `match_readme` can be used to retrieve the relevant readme content of repos. "
-              "If you want to search the readme for answer, call this function, but please just put a placeholder ```<match_readme>``` to represent a call to this function."
+              "If you want to search the readme for answer, call function `match_readme`."
               "This function will do the context comparison and return the readme content relevant to the question. Which means you don't need to compare the question with the readme content in other parts of the query."
-              "For example, you can add a ```<match_readme>``` in the query to represent a complete call ```match_readme([question embedding], 0.5, 10)```."
-              "You can expect the placeholder to be replaced by the actual call to the function."
               "You can expect the result of the function call is (repo_id, text, similarity), in which the texts are already similar to the question so you don't need to compare to confirm its similarity. "
+              "For example, you call ```match_readme([0.1, 0.2])``` to get the repo_id, text similar to embedding [0.1, 0.2]."
               "Example for using the function to get relevant readme content: ```SELECT * FROM <match_readme> AS a JOIN repos ON repos.id = a.repo_id ORDER BY a.similarity DESC LIMIT 10```"
               "You can union the result from the function and the result from querying `repos` to generate a comprehensive result."
               "Usually, you don't need to match all the columns in the table, just the relevant columns is enough. Generally, one in description, topics or readme matches is enough."
               "\n\nPlease generate a query to answer question: ```{}```\n\n"
-              "Start the query with `<` and end the query with `>`, example: `<SELECT * FROM repos LIMIT 1>`."
-              "And please only get the relevant columns from the tables, usually less than 10 columns is preferred."
-              "And please always shorten the description (column `description`) in the result to within 50 words."
-              "And please always order by stargazers_count DESC and limit 10.\n\n"
-              "And please just use commonly used operators unless it's necessary to use some special operators."
+              "The embedding for this question is ```{}```\n\n"
+              "Start the query with `<` and end the query with `>`, example: `<SELECT * FROM repos LIMIT 1>`.\n"
+              "And please only get the relevant columns from the tables, usually less than 10 columns is preferred.\n"
+              "And please always shorten the description (column `description`) in the result to within 50 words.\n"
+              "And please always order by stargazers_count DESC and limit 10.\n"
+              "And please just use commonly used operators unless it's necessary to use some special operators.\n"
+              "And please always use '%>' operator instead of 'LIKE' to do word matching as there are , example: `WHERE description <% 'databases'`.\n"
+              "And please avoid 'SELECT * FROM xxx' and please be selective as to the columns in the intermediate result and final result.\n"
+              "Example query for finding repos which are databases:\n"
+              """```<WITH readme_match AS (
+                    SELECT repo_id, text, similarity FROM match_readme([0.1, 0.2, 0.3])
+                ),
+                readme_repos AS (
+                    SELECT 
+                        repos.id
+                    FROM 
+                        readme_match 
+                    JOIN 
+                        repos ON repos.id = readme_match.repo_id
+                ),
+                description_match AS (
+                    SELECT 
+                        repos.id
+                    FROM 
+                        repos 
+                    WHERE 
+                        repos.description %> 'databases'
+                ),
+                topics_match AS (
+                    SELECT 
+                        repos.id
+                    FROM 
+                        repos 
+                    JOIN 
+                        repo_topics_vector ON repos.id = repo_topics_vector.repo_id 
+                    WHERE 
+                        repo_topics_vector.text %> 'databases'
+                ),
+                repos_matched AS (
+                    SELECT *  FROM readme_repos
+                    UNION
+                    SELECT *  FROM description_match
+                    UNION
+                    SELECT * FROM topics_match
+                    ORDER BY stargazers_count DESC
+                    LIMIT 10
+                )
+                SELECT name, full_name, language, stargazers_count, html_url, topics FROM repos JOIN repos_matched ON repos.id = repos_matched.id
+                >```\n\n"""
               "If you are not sure how to generate the query, just respond `<>`.\n\n"
-              "Query: ".format(schemas,
-                               question))
+              "Query: ".format(schemas, question, [0.1, 0.2, 0.3]))
     print(prompt)
     response = openai.ChatCompletion.create(
         engine=Configuration.OpenaiModel,
@@ -269,7 +324,7 @@ def question2sql(schemas, question):
     msg = response.choices[0].message.content
     print(f'Msg from model: \n{msg}\n')
     embedding_array = embedding_function.embed_documents([question], chunk_size=1000)[0]
-    sql = msg.strip('`').strip('\n').strip('<').strip('>').replace('<match_readme>', f"public.match_readme('{embedding_array}', 0.4, 20)")
+    sql = msg.strip('`').strip('\n').strip('<').strip('>').replace('match_readme([0.1, 0.2, 0.3])', f"public.match_readme('{embedding_array}', 0.4, 20)")
     print(f"Generated query: {sql}")
     return sql
 
