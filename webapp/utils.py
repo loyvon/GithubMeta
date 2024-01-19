@@ -259,21 +259,13 @@ def question2sql(schemas, question):
               "Start the query with `<` and end the query with `>`, example: `<SELECT * FROM repos LIMIT 1>`.\n"
               "And please only get the relevant columns from the tables, usually less than 10 columns is preferred.\n"
               "And please always shorten the description (column `description`) in the result to within 50 words.\n"
-              "And please always order by stargazers_count DESC and limit 10.\n"
+              "And please always order by stargazers_count DESC and limit 20.\n"
               "And please just use commonly used operators unless it's necessary to use some special operators.\n"
               "And please always use '%>' operator instead of 'LIKE' to do word matching as there are , example: `WHERE description <% 'databases'`.\n"
               "And please avoid 'SELECT * FROM xxx' and please be selective as to the columns in the intermediate result and final result.\n"
               "Example query for finding repos which are databases:\n"
-              """```<WITH readme_match AS (
-                    SELECT repo_id, text, similarity FROM match_readme([0.1, 0.2, 0.3])
-                ),
-                readme_repos AS (
-                    SELECT 
-                        repos.id
-                    FROM 
-                        readme_match 
-                    JOIN 
-                        repos ON repos.id = readme_match.repo_id
+              """```<WITH readme_repos AS (
+                    SELECT repo_id as id FROM match_readme([0.1, 0.2, 0.3])
                 ),
                 description_match AS (
                     SELECT 
@@ -294,15 +286,15 @@ def question2sql(schemas, question):
                         repo_topics_vector.text %> 'databases'
                 ),
                 repos_matched AS (
-                    SELECT *  FROM readme_repos
+                    SELECT id  FROM readme_repos
                     UNION
-                    SELECT *  FROM description_match
+                    SELECT id  FROM description_match
                     UNION
-                    SELECT * FROM topics_match
-                    ORDER BY stargazers_count DESC
-                    LIMIT 10
+                    SELECT id FROM topics_match
                 )
                 SELECT name, full_name, language, stargazers_count, html_url, topics FROM repos JOIN repos_matched ON repos.id = repos_matched.id
+                ORDER BY stargazers_count DESC
+                LIMIT 20
                 >```\n\n"""
               "If you are not sure how to generate the query, just respond `<>`.\n\n"
               "Query: ".format(schemas, question, [0.1, 0.2, 0.3]))
@@ -427,7 +419,7 @@ def summarize_repo(repo_name):
     Used language.
     (Imported libraries: number of third-party libs.)
     (Doc: summary of readme and wiki.)
-    Committers: top 10 contributors.
+    Committers: top 20 contributors.
     Recent activities: number of PRs and issues closed last week/month.
     A quality rate.
     """
