@@ -59,6 +59,7 @@ def init_db():
     conn = get_db()
     cursor = conn.cursor()
     cursor.execute('CREATE EXTENSION IF NOT EXISTS "vector";')
+    cursor.execute('''CREATE TABLE IF NOT EXISTS questions (id SERIAL PRIMARY KEY, text TEXT, result TEXT);''')
     cursor.execute('''CREATE TABLE IF NOT EXISTS repos  
                         (
                             id INTEGER PRIMARY KEY, 
@@ -163,6 +164,16 @@ def init_db():
         """)
     conn.commit()
     close_db(conn)
+
+
+def save_question(question, result):
+    conn = get_db()
+    try:
+        cursor = conn.cursor()
+        cursor.execute("INSERT INTO questions (text, result) VALUES (%s, %s);", (question, result))
+        conn.commit()
+    finally:
+        close_db(conn)
 
 
 def load_repo_into_db(data):
