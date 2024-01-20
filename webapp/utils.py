@@ -59,6 +59,7 @@ def init_db():
     conn = get_db()
     cursor = conn.cursor()
     cursor.execute('CREATE EXTENSION IF NOT EXISTS "vector";')
+    cursor.execute('''CREATE TABLE IF NOT EXISTS questions (id SERIAL PRIMARY KEY, text TEXT, result TEXT);''')
     cursor.execute('''CREATE TABLE IF NOT EXISTS repos  
                         (
                             id INTEGER PRIMARY KEY, 
@@ -163,6 +164,16 @@ def init_db():
         """)
     conn.commit()
     close_db(conn)
+
+
+def save_question(question, result):
+    conn = get_db()
+    try:
+        cursor = conn.cursor()
+        cursor.execute("INSERT INTO questions (text, result) VALUES (%s, %s);", (question, result))
+        conn.commit()
+    finally:
+        close_db(conn)
 
 
 def load_repo_into_db(data):
@@ -341,10 +352,10 @@ def describe(question, rows):
               "Please answer the question with the above information, and use abbreviation when necessary "
               "to limit the response in 3000 words."
               "Your description should focus on the question and the answer to the question."
-              "You should follow the following requirements:"
+              "Please follow the following requirements:"
               "1. Generate the description in markdown format."
-              "2. The first part is the query result in table format if query result is not empty."
-              "3. The second part is a brief explanation of the table content."
+              "2. The first part is the query result in table format if query result is not empty, don't omit any row among the rows."
+              "3. The second part is a brief explanation of the table content, you can skip this part for abbreviation."
               "4. Don't mention the query, focus on question and result."
               "Description: ").format(question, rows[0], rows[1])
     print(prompt)

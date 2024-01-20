@@ -38,9 +38,11 @@ def search():
 
         description = utils.describe(question, db_res)
         print(f'Answer:\n{description}')
+        utils.save_question(question, description)
     except Exception as ex:
         print(traceback.format_exc())
         print(f"Failed to answer question \"{question}\", exception: {ex}")
+        utils.save_question(question, f'Failed due to {ex}')
 
     return description
 
