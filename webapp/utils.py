@@ -110,6 +110,20 @@ def init_db():
                             embedding vector(1536)
                         )
                         ''')
+    cursor.execute('''CREATE TABLE IF NOT EXISTS repo_description_vector  
+                        (
+                            repo_id INTEGER,
+                            text TEXT,
+                            embedding vector(1536)
+                        )
+                        ''')
+    cursor.execute('''CREATE TABLE IF NOT EXISTS repo_topics_vector  
+                        (
+                            repo_id INTEGER,
+                            text TEXT,
+                            embedding vector(1536)
+                        )
+                        ''')
     cursor.execute("""DO $$
                     BEGIN
                         IF NOT EXISTS (
@@ -256,11 +270,11 @@ def question2sql(schemas, question):
               "Start the query with `<` and end the query with `>`, example: `<SELECT * FROM repos LIMIT 1>`.\n"
               "And please only get the relevant columns from the tables, usually less than 10 columns is preferred.\n"
               "And please always shorten the description (column `description`) in the result to within 50 words.\n"
-              "And please always order by stargazers_count DESC and limit 10.\n"
+              "And please always order by stargazers_count DESC and limit 20.\n"
               "And please just use commonly used operators unless it's necessary to use some special operators.\n"
               "And please always use '%>' operator instead of 'LIKE' to do word matching as there are , example: `WHERE description <% 'databases'`.\n"
               "And please avoid 'SELECT * FROM xxx' and please be selective as to the columns in the intermediate result and final result.\n"
-              "Example query for finding repos that are relevant to `databases`, this kind of question requires semantic comparing and you need to use match_readme and '%>':\n"
+              "Example query for finding repos which are databases:\n"
               """```<WITH readme_repos AS (
                     SELECT repo_id as id FROM match_readme([0.1, 0.2, 0.3])
                 ),
@@ -277,8 +291,10 @@ def question2sql(schemas, question):
                         repos.id
                     FROM 
                         repos 
+                    JOIN 
+                        repo_topics_vector ON repos.id = repo_topics_vector.repo_id 
                     WHERE 
-                        repos.topics %> 'databases'
+                        repo_topics_vector.text %> 'databases'
                 ),
                 repos_matched AS (
                     SELECT id  FROM readme_repos
@@ -289,12 +305,8 @@ def question2sql(schemas, question):
                 )
                 SELECT name, full_name, language, stargazers_count, html_url, topics FROM repos JOIN repos_matched ON repos.id = repos_matched.id
                 ORDER BY stargazers_count DESC
-                LIMIT 10
+                LIMIT 20
                 >```\n\n"""
-              "Example query for finding repos `with most stars`, this kind of question does not require semantic comparing:\n"
-              """```<SELECT name, full_name, language, stargazers_count, html_url, topics FROM repos 
-                ORDER BY stargazers_count DESC
-                LIMIT 10>```\n\n"""
               "If you are not sure how to generate the query, just respond `<>`.\n\n"
               "Query: ".format(schemas, question, [0.1, 0.2, 0.3]))
     print(prompt)
@@ -344,7 +356,7 @@ def describe(question, rows):
               "1. Generate the description in markdown format."
               "2. The first part is the query result in table format if query result is not empty, don't omit any row among the rows."
               "3. The second part is a brief explanation of the table content, you can skip this part for abbreviation."
-              "4. Don't mention the query, focus on question and result.\n\n"
+              "4. Don't mention the query, focus on question and result."
               "Description: ").format(question, rows[0], rows[1])
     print(prompt)
     response = openai.ChatCompletion.create(engine=Configuration.OpenaiModel,
